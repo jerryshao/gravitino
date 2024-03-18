@@ -27,7 +27,7 @@ You can install the Gravitino connector in Trino office docker images step by st
 
 ### Running the container
 
-Use the docker command to create a container from the `trinodb/trino` image. Assign it the trino-gravitino name. 
+Use the docker command to create a container from the `trinodb/trino` image. Assign it the trino-gravitino name.
 Run it in the background, and map the default Trino port, which is 8080, from inside the container to port 8080 on your machine.
 
 ```shell
@@ -66,13 +66,13 @@ Now you can see the Gravitino connector directory in the plugin directory.
 
 ### Configuring the Gravitino connector
 
-Assuming you have now started the Gravitino server on the host `gravitino-server-host` and already created a metalake named `test`, if those have not been prepared, please refer to the [Gravitino Getting-started](../getting-started.md).
+Assuming you have now started the Gravitino server on the host `gravitino-server-host` and already created a metalake named `test`, if those have not been prepared, please refer to the [Gravitino getting started](../getting-started.md).
 
 To configure Gravitino connector correctly, you need to put the following configurations to the Trino configuration file `/etc/trino/catalog/gravitino.properties`.
 
 ```text
 connector.name=gravitino
-gravitino.url=http://gravitino-server-host:8090
+gravitino.uri=http://gravitino-server-host:8090
 gravitino.metalake=test
 ```
 
@@ -113,7 +113,7 @@ system
 
 You can see the `gravitino` catalog in the result set. This signifies the successful installation of the Gravitino connector.
 
-Assuming you have created a catalog named `test.jdbc-mysql` in the Gravitino server, or please refer to [Create a Catalog](../manage-metadata-using-gravitino#create-a-catalog). Then you can use the Trino CLI to connect to the Trino container and run a query like this.
+Assuming you have created a catalog named `test.jdbc-mysql` in the Gravitino server, or please refer to [Create a Catalog](../manage-metadata-using-gravitino.md#create-a-catalog). Then you can use the Trino CLI to connect to the Trino container and run a query like this.
 
 ```text
 docker exec -it trino trino

@@ -32,17 +32,21 @@ public class DataSourceUtils {
     try {
       return createDBCPDataSource(jdbcConfig);
     } catch (Exception exception) {
-      throw new GravitinoRuntimeException("Error creating datasource", exception);
+      throw new GravitinoRuntimeException(exception, "Error creating datasource");
     }
   }
 
   private static DataSource createDBCPDataSource(JdbcConfig jdbcConfig) throws Exception {
     BasicDataSource basicDataSource =
         BasicDataSourceFactory.createDataSource(getProperties(jdbcConfig));
-    basicDataSource.setUrl(jdbcConfig.getJdbcUrl());
-    jdbcConfig.getJdbcDriverOptional().ifPresent(basicDataSource::setDriverClassName);
-    jdbcConfig.getUsernameOptional().ifPresent(basicDataSource::setUsername);
-    jdbcConfig.getPasswordOptional().ifPresent(basicDataSource::setPassword);
+    String jdbcUrl = jdbcConfig.getJdbcUrl();
+    basicDataSource.setUrl(jdbcUrl);
+    String driverClassName = jdbcConfig.getJdbcDriver();
+    basicDataSource.setDriverClassName(driverClassName);
+    String userName = jdbcConfig.getUsername();
+    basicDataSource.setUsername(userName);
+    String password = jdbcConfig.getPassword();
+    basicDataSource.setPassword(password);
     basicDataSource.setMaxTotal(jdbcConfig.getPoolMaxSize());
     basicDataSource.setMinIdle(jdbcConfig.getPoolMinSize());
     // Set each time a connection is taken out from the connection pool, a test statement will be
@@ -61,11 +65,17 @@ public class DataSourceUtils {
   public static void closeDataSource(DataSource dataSource) {
     if (null != dataSource) {
       try {
-        assert dataSource instanceof BasicDataSource;
-        ((BasicDataSource) dataSource).close();
+        if (dataSource instanceof BasicDataSource) {
+          ((BasicDataSource) dataSource).close();
+        } else {
+          throw new UnsupportedOperationException(
+              "close operation can only be called in BasicDataSource.");
+        }
       } catch (SQLException ignore) {
         // no op
       }
     }
   }
+
+  private DataSourceUtils() {}
 }

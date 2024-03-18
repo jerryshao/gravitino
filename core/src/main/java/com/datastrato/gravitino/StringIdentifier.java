@@ -7,6 +7,8 @@ package com.datastrato.gravitino;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
+import java.util.Collections;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -87,25 +89,48 @@ public class StringIdentifier {
    * @param properties the properties to add the string identifier to
    * @return the properties with the string identifier added
    */
-  public static Map<String, String> addToProperties(
+  public static Map<String, String> newPropertiesWithId(
       StringIdentifier stringId, Map<String, String> properties) {
     if (properties == null) {
       return ImmutableMap.of(ID_KEY, stringId.toString());
     }
 
     if (properties.containsKey(ID_KEY)) {
-      LOG.warn(
-          "Property {}:{} already existed in the properties, this is unexpected, we will "
-              + "ignore adding the identifier to the properties",
-          ID_KEY,
-          properties.get(ID_KEY));
-      return properties;
+      if (LOG.isWarnEnabled()) {
+        LOG.warn(
+            "Property {}:{} already existed in the properties, this is unexpected, we will "
+                + "ignore adding the identifier to the properties",
+            ID_KEY,
+            properties.get(ID_KEY));
+      }
+      return Collections.unmodifiableMap(properties);
     }
 
     return ImmutableMap.<String, String>builder()
         .putAll(properties)
         .put(ID_KEY, stringId.toString())
         .build();
+  }
+
+  /**
+   * Remove StringIdentifier from properties.
+   *
+   * @param properties the properties to remove the string identifier from.
+   * @return the properties with the string identifier removed.
+   */
+  public static Map<String, String> newPropertiesWithoutId(Map<String, String> properties) {
+    if (properties == null) {
+      return null;
+    }
+
+    if (!properties.containsKey(ID_KEY)) {
+      return Collections.unmodifiableMap(properties);
+    }
+
+    Map<String, String> copy = Maps.newHashMap(properties);
+    copy.remove(ID_KEY);
+
+    return ImmutableMap.<String, String>builder().putAll(copy).build();
   }
 
   public static StringIdentifier fromProperties(Map<String, String> properties) {

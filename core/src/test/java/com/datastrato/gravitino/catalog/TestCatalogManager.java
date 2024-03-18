@@ -12,6 +12,7 @@ import com.datastrato.gravitino.Config;
 import com.datastrato.gravitino.Configs;
 import com.datastrato.gravitino.EntityStore;
 import com.datastrato.gravitino.NameIdentifier;
+import com.datastrato.gravitino.Namespace;
 import com.datastrato.gravitino.StringIdentifier;
 import com.datastrato.gravitino.TestEntityStore;
 import com.datastrato.gravitino.TestEntityStore.InMemoryEntityStore;
@@ -34,13 +35,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.MethodOrderer;
-import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.TestMethodOrder;
 import org.mockito.Mockito;
 
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class TestCatalogManager {
 
   private static CatalogManager catalogManager;
@@ -58,7 +55,7 @@ public class TestCatalogManager {
           .withId(1L)
           .withName(metalake)
           .withAuditInfo(
-              new AuditInfo.Builder().withCreator("test").withCreateTime(Instant.now()).build())
+              AuditInfo.builder().withCreator("test").withCreateTime(Instant.now()).build())
           .withVersion(SchemaVersion.V_0_1)
           .build();
 
@@ -136,7 +133,6 @@ public class TestCatalogManager {
   }
 
   @Test
-  @Order(1)
   void testLoadTable() throws IOException {
     NameIdentifier ident = NameIdentifier.of("metalake", "test444");
     // key1 is required;
@@ -161,7 +157,6 @@ public class TestCatalogManager {
   }
 
   @Test
-  @Order(2)
   void testPropertyValidationInAlter() throws IOException {
     // key1 is required and immutable and do not have default value, is not hidden and not reserved
     // key2 is required and mutable and do not have default value, is not hidden and not reserved
@@ -198,16 +193,16 @@ public class TestCatalogManager {
             catalogManager.createCatalog(
                 ident2, Catalog.Type.RELATIONAL, provider, "comment", props2));
 
+    CatalogChange change1 = CatalogChange.setProperty("key1", "value1");
     Exception e1 =
         Assertions.assertThrows(
-            IllegalArgumentException.class,
-            () -> catalogManager.alterCatalog(ident, CatalogChange.setProperty("key1", "value1")));
+            IllegalArgumentException.class, () -> catalogManager.alterCatalog(ident, change1));
     Assertions.assertTrue(e1.getMessage().contains("Property key1 is immutable"));
 
+    CatalogChange change2 = CatalogChange.setProperty("key3", "value2");
     Exception e2 =
         Assertions.assertThrows(
-            IllegalArgumentException.class,
-            () -> catalogManager.alterCatalog(ident2, CatalogChange.setProperty("key3", "value2")));
+            IllegalArgumentException.class, () -> catalogManager.alterCatalog(ident2, change2));
     Assertions.assertTrue(e2.getMessage().contains("Property key3 is immutable"));
 
     Assertions.assertDoesNotThrow(
@@ -215,20 +210,17 @@ public class TestCatalogManager {
     Assertions.assertDoesNotThrow(
         () -> catalogManager.alterCatalog(ident2, CatalogChange.setProperty("key2", "value2")));
 
+    CatalogChange change3 = CatalogChange.setProperty("key4", "value4");
+    CatalogChange change4 = CatalogChange.removeProperty("key1");
     Exception e3 =
         Assertions.assertThrows(
             IllegalArgumentException.class,
-            () ->
-                catalogManager.alterCatalog(
-                    ident2,
-                    CatalogChange.setProperty("key4", "value4"),
-                    CatalogChange.removeProperty("key1")));
+            () -> catalogManager.alterCatalog(ident2, change3, change4));
     Assertions.assertTrue(e3.getMessage().contains("Property key1 is immutable"));
     reset();
   }
 
   @Test
-  @Order(3)
   void testPropertyValidationInCreate() throws IOException {
     // key1 is required and immutable and do not have default value, is not hidden and not reserved
     // key2 is required and mutable and do not have default value, is not hidden and not reserved
@@ -359,9 +351,10 @@ public class TestCatalogManager {
 
     // Test list under non-existed metalake
     NameIdentifier ident2 = NameIdentifier.of("metalake1", "test1");
+    Namespace namespace = ident2.namespace();
     Throwable exception =
         Assertions.assertThrows(
-            NoSuchMetalakeException.class, () -> catalogManager.listCatalogs(ident2.namespace()));
+            NoSuchMetalakeException.class, () -> catalogManager.listCatalogs(namespace));
     Assertions.assertTrue(exception.getMessage().contains("Metalake metalake1 does not exist"));
   }
 

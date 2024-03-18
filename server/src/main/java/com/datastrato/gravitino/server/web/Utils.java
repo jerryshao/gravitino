@@ -4,7 +4,11 @@
  */
 package com.datastrato.gravitino.server.web;
 
+import com.datastrato.gravitino.UserPrincipal;
+import com.datastrato.gravitino.auth.AuthConstants;
 import com.datastrato.gravitino.dto.responses.ErrorResponse;
+import com.datastrato.gravitino.utils.PrincipalUtils;
+import java.security.PrivilegedExceptionAction;
 import java.util.Optional;
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.core.MediaType;
@@ -93,5 +97,27 @@ public class Utils {
         .entity(ErrorResponse.nonEmpty(type, message, throwable))
         .type(MediaType.APPLICATION_JSON)
         .build();
+  }
+
+  public static Response unsupportedOperation(String message) {
+    return unsupportedOperation(message, null);
+  }
+
+  public static Response unsupportedOperation(String message, Throwable throwable) {
+    return Response.status(Response.Status.METHOD_NOT_ALLOWED)
+        .entity(ErrorResponse.unsupportedOperation(message, throwable))
+        .type(MediaType.APPLICATION_JSON)
+        .build();
+  }
+
+  public static Response doAs(
+      HttpServletRequest httpRequest, PrivilegedExceptionAction<Response> action) throws Exception {
+    UserPrincipal principal =
+        (UserPrincipal)
+            httpRequest.getAttribute(AuthConstants.AUTHENTICATED_PRINCIPAL_ATTRIBUTE_NAME);
+    if (principal == null) {
+      principal = new UserPrincipal(AuthConstants.ANONYMOUS_USER);
+    }
+    return PrincipalUtils.doAs(principal, action);
   }
 }

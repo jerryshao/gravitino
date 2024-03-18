@@ -44,6 +44,7 @@ fi
 
 GRAVITINO_CLASSPATH+=":${GRAVITINO_CONF_DIR}"
 
+JVM_VERSION=8
 function check_java_version() {
   if [[ -n "${JAVA_HOME+x}" ]]; then
     JAVA="$JAVA_HOME/bin/java"
@@ -55,11 +56,15 @@ function check_java_version() {
     JVM_VERSION=$(echo "$jvmver"|sed -e 's|^1\.\([0-9][0-9]*\)\..*$|\1|')
   fi
 
+  if [ "$JVM_VERSION" -lt 8 ]; then
+    echo "Gravitino requires either Java 8 or newer"
+    exit 1
+  fi
+
   # JDK 8u151 version fixed a number of security vulnerabilities and issues to improve system stability and security.
   # https://www.oracle.com/java/technologies/javase/8u151-relnotes.html
-  if [ "$JVM_VERSION" -lt 8 ] || { [ "$JVM_VERSION" -eq 8 ] && [ "${jvmver#*_}" -lt 151 ]; } ; then
-    echo "Gravitino requires either Java 8 update 151 or newer"
-    exit 1;
+  if [[ "$JVM_VERSION" -eq 8 && "${jvmver#*_}" -lt 151 ]]; then
+    echo "[WARNING] Gravitino highly recommends using either Java 8 update 151 or newer"
   fi
 }
 

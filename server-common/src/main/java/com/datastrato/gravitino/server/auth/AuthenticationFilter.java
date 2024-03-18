@@ -9,6 +9,7 @@ import com.datastrato.gravitino.exceptions.UnauthorizedException;
 import com.google.common.annotations.VisibleForTesting;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.security.Principal;
 import java.util.Enumeration;
 import javax.servlet.Filter;
 import javax.servlet.FilterChain;
@@ -52,11 +53,20 @@ public class AuthenticationFilter implements Filter {
         authData = headerData.nextElement().getBytes(StandardCharsets.UTF_8);
       }
       if (authenticator.isDataFromToken()) {
-        authenticator.authenticateToken(authData);
+        Principal principal = authenticator.authenticateToken(authData);
+        request.setAttribute(AuthConstants.AUTHENTICATED_PRINCIPAL_ATTRIBUTE_NAME, principal);
       }
       chain.doFilter(request, response);
     } catch (UnauthorizedException ue) {
       HttpServletResponse resp = (HttpServletResponse) response;
+      if (!ue.getChallenges().isEmpty()) {
+        // For some authentication, HTTP response can provide some challenge information
+        // to let client to create correct authenticated request.
+        // Refer to https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/WWW-Authenticate
+        for (String challenge : ue.getChallenges()) {
+          resp.setHeader(AuthConstants.HTTP_CHALLENGE_HEADER, challenge);
+        }
+      }
       resp.sendError(HttpServletResponse.SC_UNAUTHORIZED, ue.getMessage());
     }
   }

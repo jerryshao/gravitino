@@ -3,6 +3,9 @@
  * This software is licensed under the Apache License version 2.
  */
 
+import _, { intersectionWith, isEqual, mergeWith, unionWith } from 'lodash-es'
+import { isArray, isObject } from './is'
+
 export const isDevEnv = process.env.NODE_ENV === 'development'
 
 export const isProdEnv = process.env.NODE_ENV === 'production'
@@ -63,4 +66,97 @@ export const genUpdates = (originalData, newData) => {
 
 export const hasNull = obj => {
   return Object.keys(obj).some(key => obj[key] === null)
+}
+
+/*
+ * The following functions originally come from the MIT licensed Vben project.
+ */
+
+export const deepMerge = (source, target, mergeArrays = 'replace') => {
+  if (!target) {
+    return source
+  }
+  if (!source) {
+    return target
+  }
+
+  return mergeWith({}, source, target, (sourceValue, targetValue) => {
+    if (isArray(targetValue) && isArray(sourceValue)) {
+      switch (mergeArrays) {
+        case 'union':
+          return unionWith(sourceValue, targetValue, isEqual)
+        case 'intersection':
+          return intersectionWith(sourceValue, targetValue, isEqual)
+        case 'concat':
+          return sourceValue.concat(targetValue)
+        case 'replace':
+          return targetValue
+        default:
+          throw new Error(`Unknown merge array strategy: ${mergeArrays}`)
+      }
+    }
+    if (isObject(targetValue) && isObject(sourceValue)) {
+      return deepMerge(sourceValue, targetValue, mergeArrays)
+    }
+
+    return undefined
+  })
+}
+
+export function setObjToUrlParams(baseUrl, obj) {
+  let parameters = ''
+  for (const key in obj) {
+    parameters += key + '=' + encodeURIComponent(obj[key]) + '&'
+  }
+  parameters = parameters.replace(/&$/, '')
+
+  return /\?$/.test(baseUrl) ? baseUrl + parameters : baseUrl.replace(/\/?$/, '?') + parameters
+}
+
+export function extractPlaceholder(str) {
+  const regex = /\{\{(.*?)\}\}/g
+  let matches = []
+  let match
+
+  while ((match = regex.exec(str)) !== null) {
+    matches.push(match[1])
+  }
+
+  return matches
+}
+
+export const updateTreeData = (list = [], key, children = []) => {
+  return list.map(node => {
+    if (node.key === key) {
+      return {
+        ...node,
+        children
+      }
+    }
+    if (node.children) {
+      return {
+        ...node,
+        children: updateTreeData(node.children, key, children)
+      }
+    }
+
+    return node
+  })
+}
+
+export const findInTree = (tree, key, value) => {
+  let result = null
+
+  const found = _.find(tree, node => node[key] === value)
+  if (found) {
+    result = found
+  } else {
+    _.forEach(tree, node => {
+      if (_.isEmpty(result) && node.children) {
+        result = findInTree(node.children, key, value)
+      }
+    })
+  }
+
+  return result
 }

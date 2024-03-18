@@ -4,7 +4,7 @@
  */
 package com.datastrato.gravitino;
 
-import com.datastrato.gravitino.catalog.rel.BaseColumn;
+import com.datastrato.gravitino.connector.BaseColumn;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
 
@@ -24,6 +24,7 @@ public class TestColumn extends BaseColumn {
       column.comment = comment;
       column.dataType = dataType;
       column.nullable = nullable;
+      column.defaultValue = defaultValue;
 
       return column;
     }

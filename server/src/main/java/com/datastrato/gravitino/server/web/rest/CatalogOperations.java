@@ -16,6 +16,8 @@ import com.datastrato.gravitino.dto.responses.CatalogResponse;
 import com.datastrato.gravitino.dto.responses.DropResponse;
 import com.datastrato.gravitino.dto.responses.EntityListResponse;
 import com.datastrato.gravitino.dto.util.DTOConverters;
+import com.datastrato.gravitino.lock.LockType;
+import com.datastrato.gravitino.lock.TreeLockUtils;
 import com.datastrato.gravitino.server.web.Utils;
 import javax.inject.Inject;
 import javax.servlet.http.HttpServletRequest;
@@ -53,10 +55,18 @@ public class CatalogOperations {
   @Produces("application/vnd.gravitino.v1+json")
   public Response listCatalogs(@PathParam("metalake") String metalake) {
     try {
-      Namespace catalogNS = Namespace.ofCatalog(metalake);
-      NameIdentifier[] idents = manager.listCatalogs(catalogNS);
-      return Utils.ok(new EntityListResponse(idents));
-
+      return Utils.doAs(
+          httpRequest,
+          () -> {
+            Namespace catalogNS = Namespace.ofCatalog(metalake);
+            // Lock the root and the metalake with WRITE lock to ensure the consistency of the list.
+            NameIdentifier[] idents =
+                TreeLockUtils.doWithTreeLock(
+                    NameIdentifier.of(metalake),
+                    LockType.WRITE,
+                    () -> manager.listCatalogs(catalogNS));
+            return Utils.ok(new EntityListResponse(idents));
+          });
     } catch (Exception e) {
       return ExceptionHandlers.handleCatalogException(OperationType.LIST, "", metalake, e);
     }
@@ -67,16 +77,24 @@ public class CatalogOperations {
   public Response createCatalog(
       @PathParam("metalake") String metalake, CatalogCreateRequest request) {
     try {
-      request.validate();
-      NameIdentifier ident = NameIdentifier.ofCatalog(metalake, request.getName());
-      Catalog catalog =
-          manager.createCatalog(
-              ident,
-              request.getType(),
-              request.getProvider(),
-              request.getComment(),
-              request.getProperties());
-      return Utils.ok(new CatalogResponse(DTOConverters.toDTO(catalog)));
+      return Utils.doAs(
+          httpRequest,
+          () -> {
+            request.validate();
+            NameIdentifier ident = NameIdentifier.ofCatalog(metalake, request.getName());
+            Catalog catalog =
+                TreeLockUtils.doWithTreeLock(
+                    ident,
+                    LockType.WRITE,
+                    () ->
+                        manager.createCatalog(
+                            ident,
+                            request.getType(),
+                            request.getProvider(),
+                            request.getComment(),
+                            request.getProperties()));
+            return Utils.ok(new CatalogResponse(DTOConverters.toDTO(catalog)));
+          });
 
     } catch (Exception e) {
       return ExceptionHandlers.handleCatalogException(
@@ -91,7 +109,8 @@ public class CatalogOperations {
       @PathParam("metalake") String metalakeName, @PathParam("catalog") String catalogName) {
     try {
       NameIdentifier ident = NameIdentifier.ofCatalog(metalakeName, catalogName);
-      Catalog catalog = manager.loadCatalog(ident);
+      Catalog catalog =
+          TreeLockUtils.doWithTreeLock(ident, LockType.READ, () -> manager.loadCatalog(ident));
       return Utils.ok(new CatalogResponse(DTOConverters.toDTO(catalog)));
 
     } catch (Exception e) {
@@ -108,15 +127,20 @@ public class CatalogOperations {
       @PathParam("catalog") String catalogName,
       CatalogUpdatesRequest request) {
     try {
-      request.validate();
-      NameIdentifier ident = NameIdentifier.ofCatalog(metalakeName, catalogName);
-      CatalogChange[] changes =
-          request.getUpdates().stream()
-              .map(CatalogUpdateRequest::catalogChange)
-              .toArray(CatalogChange[]::new);
-
-      Catalog catalog = manager.alterCatalog(ident, changes);
-      return Utils.ok(new CatalogResponse(DTOConverters.toDTO(catalog)));
+      return Utils.doAs(
+          httpRequest,
+          () -> {
+            request.validate();
+            NameIdentifier ident = NameIdentifier.ofCatalog(metalakeName, catalogName);
+            CatalogChange[] changes =
+                request.getUpdates().stream()
+                    .map(CatalogUpdateRequest::catalogChange)
+                    .toArray(CatalogChange[]::new);
+            Catalog catalog =
+                TreeLockUtils.doWithTreeLock(
+                    ident, LockType.WRITE, () -> manager.alterCatalog(ident, changes));
+            return Utils.ok(new CatalogResponse(DTOConverters.toDTO(catalog)));
+          });
 
     } catch (Exception e) {
       return ExceptionHandlers.handleCatalogException(
@@ -130,14 +154,19 @@ public class CatalogOperations {
   public Response dropCatalog(
       @PathParam("metalake") String metalakeName, @PathParam("catalog") String catalogName) {
     try {
-      NameIdentifier ident = NameIdentifier.ofCatalog(metalakeName, catalogName);
-      boolean dropped = manager.dropCatalog(ident);
-      if (!dropped) {
-        LOG.warn("Failed to drop catalog {} under metalake {}", catalogName, metalakeName);
-      }
+      return Utils.doAs(
+          httpRequest,
+          () -> {
+            NameIdentifier ident = NameIdentifier.ofCatalog(metalakeName, catalogName);
+            boolean dropped =
+                TreeLockUtils.doWithTreeLock(
+                    ident, LockType.WRITE, () -> manager.dropCatalog(ident));
+            if (!dropped) {
+              LOG.warn("Failed to drop catalog {} under metalake {}", catalogName, metalakeName);
+            }
 
-      return Utils.ok(new DropResponse(dropped));
-
+            return Utils.ok(new DropResponse(dropped));
+          });
     } catch (Exception e) {
       return ExceptionHandlers.handleCatalogException(
           OperationType.DROP, catalogName, metalakeName, e);

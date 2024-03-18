@@ -17,10 +17,10 @@ import com.datastrato.gravitino.dto.responses.MetalakeResponse;
 import com.datastrato.gravitino.dto.responses.VersionResponse;
 import com.datastrato.gravitino.exceptions.MetalakeAlreadyExistsException;
 import com.datastrato.gravitino.exceptions.NoSuchMetalakeException;
-import com.datastrato.gravitino.json.JsonUtils;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
 import java.io.Closeable;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -40,9 +40,10 @@ public class GravitinoClient implements SupportsMetalakes, Closeable {
 
   private static final Logger LOG = LoggerFactory.getLogger(GravitinoClient.class);
 
-  private static final ObjectMapper MAPPER = JsonUtils.objectMapper();
-
   private final RESTClient restClient;
+
+  private static final String API_METALAKES_LIST_PATH = "api/metalakes";
+  private static final String API_METALAKES_IDENTIFIER_PATH = "api/metalakes/";
 
   /**
    * Constructs a new GravitinoClient with the given URI, authenticator and AuthDataProvider.
@@ -67,7 +68,7 @@ public class GravitinoClient implements SupportsMetalakes, Closeable {
   public GravitinoMetaLake[] listMetalakes() {
     MetalakeListResponse resp =
         restClient.get(
-            "api/metalakes",
+            API_METALAKES_LIST_PATH,
             MetalakeListResponse.class,
             Collections.emptyMap(),
             ErrorHandlers.metalakeErrorHandler());
@@ -91,7 +92,7 @@ public class GravitinoClient implements SupportsMetalakes, Closeable {
 
     MetalakeResponse resp =
         restClient.get(
-            "api/metalakes/" + ident.name(),
+            API_METALAKES_IDENTIFIER_PATH + ident.name(),
             MetalakeResponse.class,
             Collections.emptyMap(),
             ErrorHandlers.metalakeErrorHandler());
@@ -121,7 +122,7 @@ public class GravitinoClient implements SupportsMetalakes, Closeable {
 
     MetalakeResponse resp =
         restClient.post(
-            "api/metalakes",
+            API_METALAKES_LIST_PATH,
             req,
             MetalakeResponse.class,
             Collections.emptyMap(),
@@ -154,7 +155,7 @@ public class GravitinoClient implements SupportsMetalakes, Closeable {
 
     MetalakeResponse resp =
         restClient.put(
-            "api/metalakes/" + ident.name(),
+            API_METALAKES_IDENTIFIER_PATH + ident.name(),
             updatesRequest,
             MetalakeResponse.class,
             Collections.emptyMap(),
@@ -177,7 +178,7 @@ public class GravitinoClient implements SupportsMetalakes, Closeable {
     try {
       DropResponse resp =
           restClient.delete(
-              "api/metalakes/" + ident.name(),
+              API_METALAKES_IDENTIFIER_PATH + ident.name(),
               DropResponse.class,
               Collections.emptyMap(),
               ErrorHandlers.metalakeErrorHandler());
@@ -190,6 +191,11 @@ public class GravitinoClient implements SupportsMetalakes, Closeable {
     }
   }
 
+  /**
+   * Retrieves the version of the Gravitino API.
+   *
+   * @return A GravitinoVersion instance representing the version of the Gravitino API.
+   */
   public GravitinoVersion getVersion() {
     VersionResponse resp =
         restClient.get(
@@ -258,6 +264,25 @@ public class GravitinoClient implements SupportsMetalakes, Closeable {
      * @return This Builder instance for method chaining.
      */
     public Builder withOAuth(OAuth2TokenProvider dataProvider) {
+      this.authDataProvider = dataProvider;
+      return this;
+    }
+
+    /**
+     * Sets KerberosTokenProvider for the GravitinoClient.
+     *
+     * @param dataProvider The KerberosTokenProvider used as the provider of authentication data for
+     *     GravitinoClient.
+     * @return This Builder instance for method chaining.
+     */
+    public Builder withKerberosAuth(KerberosTokenProvider dataProvider) {
+      try {
+        if (uri != null) {
+          dataProvider.setHost(new URI(uri).getHost());
+        }
+      } catch (URISyntaxException ue) {
+        throw new IllegalArgumentException("URI has the wrong format", ue);
+      }
       this.authDataProvider = dataProvider;
       return this;
     }

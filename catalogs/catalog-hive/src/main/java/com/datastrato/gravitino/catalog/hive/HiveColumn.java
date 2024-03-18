@@ -4,7 +4,7 @@
  */
 package com.datastrato.gravitino.catalog.hive;
 
-import com.datastrato.gravitino.catalog.rel.BaseColumn;
+import com.datastrato.gravitino.connector.BaseColumn;
 import lombok.EqualsAndHashCode;
 
 /** Represents a column in the Hive Metastore catalog. */
@@ -29,6 +29,7 @@ public class HiveColumn extends BaseColumn {
       hiveColumn.comment = comment;
       hiveColumn.dataType = dataType;
       hiveColumn.nullable = nullable;
+      hiveColumn.defaultValue = defaultValue == null ? DEFAULT_VALUE_NOT_SET : defaultValue;
       return hiveColumn;
     }
   }

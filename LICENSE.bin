@@ -206,7 +206,6 @@
    This product bundles various third-party components also under the
    Apache Software License 2.0 from:
 
-   Gradle Wrapper
    Apache Hadoop
    Apache Hive
    Apache Iceberg
@@ -297,6 +296,8 @@
    Apache Groovy
    Apache Yetus
    Apache Yetus - Audience Annotations
+   Apache Kerby
+   Apache Kyuubi
    Jackson JSON processor
    DataNucleus
    Modernizer Maven Plugin
@@ -328,6 +329,8 @@
    Okio
    J2ObjC
    SQLite JDBC Driver
+   Immutables
+   MyBatis
 
    This product bundles various third-party components also under the
    Apache Software Foundation License 1.1
@@ -416,3 +419,7 @@
 
    AOP Alliance
 
+  This product bundles various third-party components also under the
+  COMMON DEVELOPMENT AND DISTRIBUTION LICENSE (CDDL) license
+
+  Javax Activation

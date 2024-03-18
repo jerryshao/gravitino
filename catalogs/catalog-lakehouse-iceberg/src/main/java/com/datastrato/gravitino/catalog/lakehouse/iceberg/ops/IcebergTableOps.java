@@ -4,6 +4,7 @@
  */
 package com.datastrato.gravitino.catalog.lakehouse.iceberg.ops;
 
+import com.datastrato.gravitino.catalog.lakehouse.iceberg.IcebergCatalogBackend;
 import com.datastrato.gravitino.catalog.lakehouse.iceberg.IcebergConfig;
 import com.datastrato.gravitino.catalog.lakehouse.iceberg.ops.IcebergTableOpsHelper.IcebergTableChange;
 import com.datastrato.gravitino.catalog.lakehouse.iceberg.utils.IcebergCatalogUtil;
@@ -28,20 +29,19 @@ import org.apache.iceberg.rest.responses.ListNamespacesResponse;
 import org.apache.iceberg.rest.responses.ListTablesResponse;
 import org.apache.iceberg.rest.responses.LoadTableResponse;
 import org.apache.iceberg.rest.responses.UpdateNamespacePropertiesResponse;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class IcebergTableOps implements AutoCloseable {
-
-  private static final Logger LOG = LoggerFactory.getLogger(IcebergTableOps.class);
 
   protected Catalog catalog;
   private SupportsNamespaces asNamespaceCatalog;
 
   public IcebergTableOps(IcebergConfig icebergConfig) {
     String catalogType = icebergConfig.get(IcebergConfig.CATALOG_BACKEND);
-    catalog =
-        IcebergCatalogUtil.loadCatalogBackend(catalogType, icebergConfig.getConfigsWithPrefix(""));
+    if (!IcebergCatalogBackend.MEMORY.name().equalsIgnoreCase(catalogType)) {
+      icebergConfig.get(IcebergConfig.CATALOG_WAREHOUSE);
+      icebergConfig.get(IcebergConfig.CATALOG_URI);
+    }
+    catalog = IcebergCatalogUtil.loadCatalogBackend(catalogType, icebergConfig.getAllConfig());
     if (catalog instanceof SupportsNamespaces) {
       asNamespaceCatalog = (SupportsNamespaces) catalog;
     }

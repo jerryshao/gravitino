@@ -31,8 +31,13 @@ public enum GravitinoErrorCode implements ErrorCodeSupplier {
   GRAVITINO_INNER_CONNECTOR_EXCEPTION(17, EXTERNAL),
   GRAVITINO_ICEBERG_UNSUPPORTED_JDBC_TYPE(18, EXTERNAL),
   GRAVITINO_MISSING_REQUIRED_PROPERTY(19, EXTERNAL),
+  GRAVITINO_CATALOG_ALREADY_EXISTS(20, EXTERNAL),
+  GRAVITINO_METALAKE_ALREADY_EXISTS(21, EXTERNAL),
+  GRAVITINO_OPERATION_FAILED(22, EXTERNAL),
   ;
 
+  // suppress ImmutableEnumChecker because ErrorCode is outside the project.
+  @SuppressWarnings("ImmutableEnumChecker")
   private final ErrorCode errorCode;
 
   GravitinoErrorCode(int code, ErrorType type) {

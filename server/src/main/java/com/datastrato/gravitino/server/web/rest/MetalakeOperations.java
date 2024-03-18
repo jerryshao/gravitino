@@ -17,8 +17,10 @@ import com.datastrato.gravitino.dto.responses.DropResponse;
 import com.datastrato.gravitino.dto.responses.MetalakeListResponse;
 import com.datastrato.gravitino.dto.responses.MetalakeResponse;
 import com.datastrato.gravitino.dto.util.DTOConverters;
+import com.datastrato.gravitino.lock.LockType;
+import com.datastrato.gravitino.lock.TreeLockUtils;
 import com.datastrato.gravitino.meta.BaseMetalake;
-import com.datastrato.gravitino.meta.MetalakeManager;
+import com.datastrato.gravitino.metalake.MetalakeManager;
 import com.datastrato.gravitino.metrics.MetricNames;
 import com.datastrato.gravitino.server.web.Utils;
 import java.util.Arrays;
@@ -60,10 +62,15 @@ public class MetalakeOperations {
   @ResponseMetered(name = "list-metalake", absolute = true)
   public Response listMetalakes() {
     try {
-      BaseMetalake[] metalakes = manager.listMetalakes();
-      MetalakeDTO[] metalakeDTOS =
-          Arrays.stream(metalakes).map(DTOConverters::toDTO).toArray(MetalakeDTO[]::new);
-      return Utils.ok(new MetalakeListResponse(metalakeDTOS));
+      return Utils.doAs(
+          httpRequest,
+          () -> {
+            BaseMetalake[] metalakes =
+                TreeLockUtils.doWithRootTreeLock(LockType.WRITE, manager::listMetalakes);
+            MetalakeDTO[] metalakeDTOS =
+                Arrays.stream(metalakes).map(DTOConverters::toDTO).toArray(MetalakeDTO[]::new);
+            return Utils.ok(new MetalakeListResponse(metalakeDTOS));
+          });
 
     } catch (Exception e) {
       return ExceptionHandlers.handleMetalakeException(
@@ -77,11 +84,20 @@ public class MetalakeOperations {
   @ResponseMetered(name = "create-metalake", absolute = true)
   public Response createMetalake(MetalakeCreateRequest request) {
     try {
-      request.validate();
-      NameIdentifier ident = NameIdentifier.ofMetalake(request.getName());
-      BaseMetalake metalake =
-          manager.createMetalake(ident, request.getComment(), request.getProperties());
-      return Utils.ok(new MetalakeResponse(DTOConverters.toDTO(metalake)));
+      return Utils.doAs(
+          httpRequest,
+          () -> {
+            request.validate();
+            NameIdentifier ident = NameIdentifier.ofMetalake(request.getName());
+            BaseMetalake metalake =
+                TreeLockUtils.doWithTreeLock(
+                    ident,
+                    LockType.WRITE,
+                    () ->
+                        manager.createMetalake(
+                            ident, request.getComment(), request.getProperties()));
+            return Utils.ok(new MetalakeResponse(DTOConverters.toDTO(metalake)));
+          });
 
     } catch (Exception e) {
       return ExceptionHandlers.handleMetalakeException(OperationType.CREATE, request.getName(), e);
@@ -95,9 +111,15 @@ public class MetalakeOperations {
   @ResponseMetered(name = "load-metalake", absolute = true)
   public Response loadMetalake(@PathParam("name") String metalakeName) {
     try {
-      NameIdentifier identifier = NameIdentifier.ofMetalake(metalakeName);
-      BaseMetalake metalake = manager.loadMetalake(identifier);
-      return Utils.ok(new MetalakeResponse(DTOConverters.toDTO(metalake)));
+      return Utils.doAs(
+          httpRequest,
+          () -> {
+            NameIdentifier identifier = NameIdentifier.ofMetalake(metalakeName);
+            BaseMetalake metalake =
+                TreeLockUtils.doWithTreeLock(
+                    identifier, LockType.READ, () -> manager.loadMetalake(identifier));
+            return Utils.ok(new MetalakeResponse(DTOConverters.toDTO(metalake)));
+          });
 
     } catch (Exception e) {
       return ExceptionHandlers.handleMetalakeException(OperationType.LOAD, metalakeName, e);
@@ -112,15 +134,20 @@ public class MetalakeOperations {
   public Response alterMetalake(
       @PathParam("name") String metalakeName, MetalakeUpdatesRequest updatesRequest) {
     try {
-      updatesRequest.validate();
-      NameIdentifier identifier = NameIdentifier.ofMetalake(metalakeName);
-      MetalakeChange[] changes =
-          updatesRequest.getUpdates().stream()
-              .map(MetalakeUpdateRequest::metalakeChange)
-              .toArray(MetalakeChange[]::new);
-
-      BaseMetalake updatedMetalake = manager.alterMetalake(identifier, changes);
-      return Utils.ok(new MetalakeResponse(DTOConverters.toDTO(updatedMetalake)));
+      return Utils.doAs(
+          httpRequest,
+          () -> {
+            updatesRequest.validate();
+            NameIdentifier identifier = NameIdentifier.ofMetalake(metalakeName);
+            MetalakeChange[] changes =
+                updatesRequest.getUpdates().stream()
+                    .map(MetalakeUpdateRequest::metalakeChange)
+                    .toArray(MetalakeChange[]::new);
+            BaseMetalake updatedMetalake =
+                TreeLockUtils.doWithTreeLock(
+                    identifier, LockType.WRITE, () -> manager.alterMetalake(identifier, changes));
+            return Utils.ok(new MetalakeResponse(DTOConverters.toDTO(updatedMetalake)));
+          });
 
     } catch (Exception e) {
       return ExceptionHandlers.handleMetalakeException(OperationType.ALTER, metalakeName, e);
@@ -134,13 +161,19 @@ public class MetalakeOperations {
   @ResponseMetered(name = "drop-metalake", absolute = true)
   public Response dropMetalake(@PathParam("name") String metalakeName) {
     try {
-      NameIdentifier identifier = NameIdentifier.ofMetalake(metalakeName);
-      boolean dropped = manager.dropMetalake(identifier);
-      if (!dropped) {
-        LOG.warn("Failed to drop metalake by name {}", metalakeName);
-      }
+      return Utils.doAs(
+          httpRequest,
+          () -> {
+            NameIdentifier identifier = NameIdentifier.ofMetalake(metalakeName);
+            boolean dropped =
+                TreeLockUtils.doWithTreeLock(
+                    identifier, LockType.WRITE, () -> manager.dropMetalake(identifier));
+            if (!dropped) {
+              LOG.warn("Failed to drop metalake by name {}", metalakeName);
+            }
 
-      return Utils.ok(new DropResponse(dropped));
+            return Utils.ok(new DropResponse(dropped));
+          });
 
     } catch (Exception e) {
       return ExceptionHandlers.handleMetalakeException(OperationType.DROP, metalakeName, e);

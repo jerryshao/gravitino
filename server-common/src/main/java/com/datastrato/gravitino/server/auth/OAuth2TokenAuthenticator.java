@@ -5,6 +5,7 @@
 package com.datastrato.gravitino.server.auth;
 
 import com.datastrato.gravitino.Config;
+import com.datastrato.gravitino.UserPrincipal;
 import com.datastrato.gravitino.auth.AuthConstants;
 import com.datastrato.gravitino.auth.SignatureAlgorithmFamilyType;
 import com.datastrato.gravitino.exceptions.UnauthorizedException;
@@ -19,6 +20,7 @@ import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.UnsupportedJwtException;
 import io.jsonwebtoken.security.Keys;
 import io.jsonwebtoken.security.SignatureException;
+import java.nio.charset.StandardCharsets;
 import java.security.Key;
 import java.security.KeyFactory;
 import java.security.Principal;
@@ -47,7 +49,7 @@ class OAuth2TokenAuthenticator implements Authenticator {
     if (tokenData == null) {
       throw new UnauthorizedException("Empty token authorization header");
     }
-    String authData = new String(tokenData);
+    String authData = new String(tokenData, StandardCharsets.UTF_8);
     if (StringUtils.isBlank(authData)
         || !authData.startsWith(AuthConstants.AUTHORIZATION_BEARER_HEADER)) {
       throw new UnauthorizedException("Invalid token authorization header");
@@ -72,18 +74,18 @@ class OAuth2TokenAuthenticator implements Authenticator {
       if (audienceObject instanceof String) {
         if (!serviceAudience.equals(audienceObject)) {
           throw new UnauthorizedException(
-              "Audience in the token [" + audienceObject + "] doesn't contain " + serviceAudience);
+              "Audience in the token [%s] doesn't contain %s", audienceObject, serviceAudience);
         }
       } else if (audienceObject instanceof List) {
         List<Object> audiences = (List<Object>) audienceObject;
         if (audiences.stream()
             .noneMatch(audienceInToken -> audienceInToken.equals(serviceAudience))) {
           throw new UnauthorizedException(
-              "Audiences in the token " + audienceObject + " don't contain " + serviceAudience);
+              "Audiences in the token %s don't contain %s", audienceObject, serviceAudience);
         }
       } else {
         throw new UnauthorizedException(
-            "Audiences in token is not in expected format: " + audienceObject);
+            "Audiences in token is not in expected format: %s", audienceObject);
       }
       return new UserPrincipal(jwt.getBody().getSubject());
     } catch (ExpiredJwtException
@@ -91,7 +93,7 @@ class OAuth2TokenAuthenticator implements Authenticator {
         | MalformedJwtException
         | SignatureException
         | IllegalArgumentException e) {
-      throw new UnauthorizedException("JWT parse error", e);
+      throw new UnauthorizedException(e, "JWT parse error");
     }
   }
 
@@ -100,8 +102,6 @@ class OAuth2TokenAuthenticator implements Authenticator {
     this.serviceAudience = config.get(OAuthConfig.SERVICE_AUDIENCE);
     this.allowSkewSeconds = config.get(OAuthConfig.ALLOW_SKEW_SECONDS);
     String configuredSignKey = config.get(OAuthConfig.DEFAULT_SIGN_KEY);
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(configuredSignKey), "Default signing key can't be blank");
     Preconditions.checkArgument(
         StringUtils.isNotBlank(config.get(OAuthConfig.DEFAULT_TOKEN_PATH)),
         "The path for token of the default OAuth server can't be blank");

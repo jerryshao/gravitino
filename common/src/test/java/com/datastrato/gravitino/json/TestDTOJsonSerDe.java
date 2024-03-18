@@ -14,19 +14,21 @@ import com.datastrato.gravitino.dto.rel.expressions.FieldReferenceDTO;
 import com.datastrato.gravitino.dto.rel.expressions.FuncExpressionDTO;
 import com.datastrato.gravitino.dto.rel.expressions.FunctionArg;
 import com.datastrato.gravitino.dto.rel.expressions.LiteralDTO;
-import com.datastrato.gravitino.dto.rel.partitions.BucketPartitioningDTO;
-import com.datastrato.gravitino.dto.rel.partitions.DayPartitioningDTO;
-import com.datastrato.gravitino.dto.rel.partitions.FunctionPartitioningDTO;
-import com.datastrato.gravitino.dto.rel.partitions.HourPartitioningDTO;
-import com.datastrato.gravitino.dto.rel.partitions.IdentityPartitioningDTO;
-import com.datastrato.gravitino.dto.rel.partitions.ListPartitioningDTO;
-import com.datastrato.gravitino.dto.rel.partitions.MonthPartitioningDTO;
-import com.datastrato.gravitino.dto.rel.partitions.Partitioning;
-import com.datastrato.gravitino.dto.rel.partitions.RangePartitioningDTO;
-import com.datastrato.gravitino.dto.rel.partitions.TruncatePartitioningDTO;
-import com.datastrato.gravitino.dto.rel.partitions.YearPartitioningDTO;
+import com.datastrato.gravitino.dto.rel.partitioning.BucketPartitioningDTO;
+import com.datastrato.gravitino.dto.rel.partitioning.DayPartitioningDTO;
+import com.datastrato.gravitino.dto.rel.partitioning.FunctionPartitioningDTO;
+import com.datastrato.gravitino.dto.rel.partitioning.HourPartitioningDTO;
+import com.datastrato.gravitino.dto.rel.partitioning.IdentityPartitioningDTO;
+import com.datastrato.gravitino.dto.rel.partitioning.ListPartitioningDTO;
+import com.datastrato.gravitino.dto.rel.partitioning.MonthPartitioningDTO;
+import com.datastrato.gravitino.dto.rel.partitioning.Partitioning;
+import com.datastrato.gravitino.dto.rel.partitioning.RangePartitioningDTO;
+import com.datastrato.gravitino.dto.rel.partitioning.TruncatePartitioningDTO;
+import com.datastrato.gravitino.dto.rel.partitioning.YearPartitioningDTO;
+import com.datastrato.gravitino.rel.Column;
 import com.datastrato.gravitino.rel.types.Type;
 import com.datastrato.gravitino.rel.types.Types;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.cfg.EnumFeature;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.google.common.collect.ImmutableMap;
@@ -42,10 +44,31 @@ public class TestDTOJsonSerDe {
 
   private final String metalakeJson = "{\"name\":%s,\"comment\":%s,\"properties\":%s,\"audit\":%s}";
 
-  private final String columnJson = "{\"name\":%s,\"type\":%s,\"comment\":%s,\"nullable\":%s}";
+  private final String columnJson =
+      "{\"name\":%s,\"type\":%s,\"comment\":%s,\"nullable\":%s,\"autoIncrement\":%s}";
 
-  private final String tableJson =
-      "{\"name\":%s,\"comment\":%s,\"columns\":[%s],\"properties\":%s,\"audit\":%s,\"distribution\":%s,\"sortOrders\":%s,\"partitioning\":%s}";
+  private String getExpectedTableJson(
+      String tableName,
+      String tableComment,
+      String columns,
+      String properties,
+      String audit,
+      String distribution,
+      String sortOrders,
+      String partitioning,
+      String indexes) {
+    return String.format(
+        "{\"name\":%s,\"comment\":%s,\"columns\":[%s],\"properties\":%s,\"audit\":%s,\"distribution\":%s,\"sortOrders\":%s,\"partitioning\":%s,\"indexes\":%s}",
+        withQuotes(tableName),
+        withQuotes(tableComment),
+        columns,
+        properties,
+        audit,
+        distribution,
+        sortOrders,
+        partitioning,
+        indexes);
+  }
 
   private String withQuotes(String str) {
     return "\"" + str + "\"";
@@ -183,15 +206,46 @@ public class TestDTOJsonSerDe {
             withQuotes(name),
             withQuotes(type.simpleString()),
             withQuotes(comment),
-            column.nullable());
+            column.nullable(),
+            column.autoIncrement());
     Assertions.assertEquals(expectedJson, serJson);
     ColumnDTO deserColumn = JsonUtils.objectMapper().readValue(serJson, ColumnDTO.class);
     Assertions.assertEquals(column, deserColumn);
+    Assertions.assertEquals(Column.DEFAULT_VALUE_NOT_SET, column.defaultValue());
 
     // test default nullable
     String json = "{\"name\":\"column\",\"type\":\"byte\",\"comment\":\"comment\"}";
     ColumnDTO deColumn = JsonUtils.objectMapper().readValue(json, ColumnDTO.class);
     Assertions.assertTrue(deColumn.nullable());
+
+    // test specify column default value
+    column =
+        ColumnDTO.builder()
+            .withName(name)
+            .withDataType(Types.DateType.get())
+            .withComment(comment)
+            .withDefaultValue(
+                new LiteralDTO.Builder()
+                    .withDataType(Types.DateType.get())
+                    .withValue("2023-04-01")
+                    .build())
+            .build();
+    String actual = JsonUtils.objectMapper().writeValueAsString(column);
+    String expected =
+        "{\n"
+            + "  \"name\": \"column\",\n"
+            + "  \"type\": \"date\",\n"
+            + "  \"comment\": \"comment\",\n"
+            + "  \"nullable\": true,\n"
+            + "  \"autoIncrement\": false,\n"
+            + "  \"defaultValue\": {\n"
+            + "    \"type\": \"literal\",\n"
+            + "    \"dataType\": \"date\",\n"
+            + "    \"value\": \"2023-04-01\"\n"
+            + "  }\n"
+            + "}";
+    Assertions.assertEquals(
+        JsonUtils.objectMapper().readTree(expected), JsonUtils.objectMapper().readTree(actual));
   }
 
   @Test
@@ -225,18 +279,19 @@ public class TestDTOJsonSerDe {
 
     String serJson = JsonUtils.objectMapper().writeValueAsString(table);
     String expectedJson =
-        String.format(
-            tableJson,
-            withQuotes(tableName),
-            withQuotes(tableComment),
+        getExpectedTableJson(
+            tableName,
+            tableComment,
             String.format(
                 columnJson,
                 withQuotes(name),
                 withQuotes(type.simpleString()),
                 withQuotes(comment),
-                column.nullable()),
+                column.nullable(),
+                column.autoIncrement()),
             JsonUtils.objectMapper().writeValueAsString(properties),
             String.format(auditJson, withQuotes(creator), withQuotes(now.toString()), null, null),
+            null,
             null,
             null,
             null);
@@ -319,10 +374,10 @@ public class TestDTOJsonSerDe {
   public void testPartitioningDTOSerDeFail() throws Exception {
     // test `strategy` value null
     String wrongJson1 = "{\"strategy\": null,\"fieldName\":[\"dt\"]}";
+    ObjectMapper map = JsonUtils.objectMapper();
     IllegalArgumentException illegalArgumentException =
         Assertions.assertThrows(
-            IllegalArgumentException.class,
-            () -> JsonUtils.objectMapper().readValue(wrongJson1, Partitioning.class));
+            IllegalArgumentException.class, () -> map.readValue(wrongJson1, Partitioning.class));
     Assertions.assertTrue(
         illegalArgumentException
             .getMessage()
@@ -332,16 +387,14 @@ public class TestDTOJsonSerDe {
     String wrongJson2 = "{\"strategy\": \"day\",\"fieldName\":[]}";
     IllegalArgumentException exception =
         Assertions.assertThrows(
-            IllegalArgumentException.class,
-            () -> JsonUtils.objectMapper().readValue(wrongJson2, Partitioning.class));
+            IllegalArgumentException.class, () -> map.readValue(wrongJson2, Partitioning.class));
     Assertions.assertTrue(exception.getMessage().contains("fieldName cannot be null or empty"));
 
     // test invalid `strategy` value
     String wrongJson6 = "{\"strategy\": \"my_strategy\"}";
     exception =
         Assertions.assertThrows(
-            IllegalArgumentException.class,
-            () -> JsonUtils.objectMapper().readValue(wrongJson6, Partitioning.class));
+            IllegalArgumentException.class, () -> map.readValue(wrongJson6, Partitioning.class));
     Assertions.assertTrue(exception.getMessage().contains("Invalid partitioning strategy"));
   }
 }

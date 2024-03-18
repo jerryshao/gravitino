@@ -6,8 +6,8 @@ package com.datastrato.gravitino.catalog.lakehouse.iceberg.converter;
 
 import com.datastrato.gravitino.rel.expressions.Expression;
 import com.datastrato.gravitino.rel.expressions.FunctionExpression;
-import com.datastrato.gravitino.rel.expressions.Literal;
 import com.datastrato.gravitino.rel.expressions.NamedReference;
+import com.datastrato.gravitino.rel.expressions.literals.Literal;
 import com.datastrato.gravitino.rel.expressions.sorts.NullOrdering;
 import com.datastrato.gravitino.rel.expressions.sorts.SortDirection;
 import com.datastrato.gravitino.rel.expressions.sorts.SortOrder;
@@ -21,6 +21,8 @@ import org.apache.iceberg.expressions.UnboundTerm;
 
 /** Implement gravitino sort order converter to iceberg sort order. */
 public class ToIcebergSortOrder {
+
+  private ToIcebergSortOrder() {}
 
   private static final String DOT = ".";
 

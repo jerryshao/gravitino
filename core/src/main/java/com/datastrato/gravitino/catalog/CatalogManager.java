@@ -5,6 +5,8 @@
 package com.datastrato.gravitino.catalog;
 
 import static com.datastrato.gravitino.StringIdentifier.ID_KEY;
+import static com.datastrato.gravitino.catalog.PropertiesMetadataHelpers.validatePropertyForAlter;
+import static com.datastrato.gravitino.catalog.PropertiesMetadataHelpers.validatePropertyForCreate;
 
 import com.datastrato.gravitino.Catalog;
 import com.datastrato.gravitino.CatalogChange;
@@ -20,16 +22,20 @@ import com.datastrato.gravitino.NameIdentifier;
 import com.datastrato.gravitino.Namespace;
 import com.datastrato.gravitino.StringIdentifier;
 import com.datastrato.gravitino.SupportsCatalogs;
+import com.datastrato.gravitino.connector.BaseCatalog;
+import com.datastrato.gravitino.connector.HasPropertyMetadata;
 import com.datastrato.gravitino.exceptions.CatalogAlreadyExistsException;
 import com.datastrato.gravitino.exceptions.NoSuchCatalogException;
 import com.datastrato.gravitino.exceptions.NoSuchEntityException;
 import com.datastrato.gravitino.exceptions.NoSuchMetalakeException;
+import com.datastrato.gravitino.file.FilesetCatalog;
 import com.datastrato.gravitino.meta.AuditInfo;
 import com.datastrato.gravitino.meta.CatalogEntity;
 import com.datastrato.gravitino.rel.SupportsSchemas;
 import com.datastrato.gravitino.rel.TableCatalog;
 import com.datastrato.gravitino.storage.IdGenerator;
 import com.datastrato.gravitino.utils.IsolatedClassLoader;
+import com.datastrato.gravitino.utils.PrincipalUtils;
 import com.datastrato.gravitino.utils.ThrowableFunction;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -65,6 +71,9 @@ import org.slf4j.LoggerFactory;
 /** Manages the catalog instances and operations. */
 public class CatalogManager implements SupportsCatalogs, Closeable {
 
+  private static final String CATALOG_DOES_NOT_EXIST_MSG = "Catalog %s does not exist";
+  private static final String METALAKE_DOES_NOT_EXIST_MSG = "Metalake %s does not exist";
+
   private static final Logger LOG = LoggerFactory.getLogger(CatalogManager.class);
 
   /** Wrapper class for a catalog instance and its class loader. */
@@ -97,6 +106,17 @@ public class CatalogManager implements SupportsCatalogs, Closeable {
           });
     }
 
+    public <R> R doWithFilesetOps(ThrowableFunction<FilesetCatalog, R> fn) throws Exception {
+      return classLoader.withClassLoader(
+          cl -> {
+            if (asFilesets() == null) {
+              throw new UnsupportedOperationException(
+                  "Catalog does not support fileset operations");
+            }
+            return fn.apply(asFilesets());
+          });
+    }
+
     public <R> R doWithPropertiesMeta(ThrowableFunction<HasPropertyMetadata, R> fn)
         throws Exception {
       return classLoader.withClassLoader(cl -> fn.apply(catalog.ops()));
@@ -125,6 +145,10 @@ public class CatalogManager implements SupportsCatalogs, Closeable {
 
     private TableCatalog asTables() {
       return catalog.ops() instanceof TableCatalog ? (TableCatalog) catalog.ops() : null;
+    }
+
+    private FilesetCatalog asFilesets() {
+      return catalog.ops() instanceof FilesetCatalog ? (FilesetCatalog) catalog.ops() : null;
     }
   }
 
@@ -197,7 +221,7 @@ public class CatalogManager implements SupportsCatalogs, Closeable {
     }
 
     if (!metalakeExists) {
-      throw new NoSuchMetalakeException("Metalake " + metalakeIdent + " does not exist");
+      throw new NoSuchMetalakeException(METALAKE_DOES_NOT_EXIST_MSG, metalakeIdent);
     }
 
     try {
@@ -251,17 +275,17 @@ public class CatalogManager implements SupportsCatalogs, Closeable {
     long uid = idGenerator.nextId();
     StringIdentifier stringId = StringIdentifier.fromId(uid);
     CatalogEntity e =
-        new CatalogEntity.Builder()
+        CatalogEntity.builder()
             .withId(uid)
             .withName(ident.name())
             .withNamespace(ident.namespace())
             .withType(type)
             .withProvider(provider)
             .withComment(comment)
-            .withProperties(StringIdentifier.addToProperties(stringId, mergedConfig))
+            .withProperties(StringIdentifier.newPropertiesWithId(stringId, mergedConfig))
             .withAuditInfo(
-                new AuditInfo.Builder()
-                    .withCreator("gravitino") /* TODO. Should change to real user */
+                AuditInfo.builder()
+                    .withCreator(PrincipalUtils.getCurrentPrincipal().getName())
                     .withCreateTime(Instant.now())
                     .build())
             .build();
@@ -270,7 +294,7 @@ public class CatalogManager implements SupportsCatalogs, Closeable {
       NameIdentifier metalakeIdent = NameIdentifier.of(ident.namespace().levels());
       if (!store.exists(metalakeIdent, EntityType.METALAKE)) {
         LOG.warn("Metalake {} does not exist", metalakeIdent);
-        throw new NoSuchMetalakeException("Metalake " + metalakeIdent + " does not exist");
+        throw new NoSuchMetalakeException(METALAKE_DOES_NOT_EXIST_MSG, metalakeIdent);
       }
 
       // TODO: should avoid a race condition here
@@ -279,7 +303,7 @@ public class CatalogManager implements SupportsCatalogs, Closeable {
       return wrapper.catalog;
     } catch (EntityAlreadyExistsException e1) {
       LOG.warn("Catalog {} already exists", ident, e1);
-      throw new CatalogAlreadyExistsException("Catalog " + ident + " already exists");
+      throw new CatalogAlreadyExistsException("Catalog %s already exists", ident);
     } catch (IllegalArgumentException | NoSuchMetalakeException e2) {
       throw e2;
     } catch (Exception e3) {
@@ -326,7 +350,7 @@ public class CatalogManager implements SupportsCatalogs, Closeable {
 
     CatalogWrapper catalogWrapper = loadCatalogAndWrap(ident);
     if (catalogWrapper == null) {
-      throw new NoSuchCatalogException("Catalog " + ident + " does not exist");
+      throw new NoSuchCatalogException(CATALOG_DOES_NOT_EXIST_MSG, ident);
     }
 
     try {
@@ -334,8 +358,8 @@ public class CatalogManager implements SupportsCatalogs, Closeable {
           f -> {
             Pair<Map<String, String>, Map<String, String>> alterProperty =
                 getCatalogAlterProperty(changes);
-            f.catalogPropertiesMetadata()
-                .validatePropertyForAlter(alterProperty.getLeft(), alterProperty.getRight());
+            validatePropertyForAlter(
+                f.catalogPropertiesMetadata(), alterProperty.getLeft(), alterProperty.getRight());
             return null;
           });
     } catch (IllegalArgumentException e1) {
@@ -354,7 +378,7 @@ public class CatalogManager implements SupportsCatalogs, Closeable {
               EntityType.CATALOG,
               catalog -> {
                 CatalogEntity.Builder newCatalogBuilder =
-                    new CatalogEntity.Builder()
+                    CatalogEntity.builder()
                         .withId(catalog.id())
                         .withName(catalog.name())
                         .withNamespace(ident.namespace())
@@ -363,11 +387,10 @@ public class CatalogManager implements SupportsCatalogs, Closeable {
                         .withComment(catalog.getComment());
 
                 AuditInfo newInfo =
-                    new AuditInfo.Builder()
+                    AuditInfo.builder()
                         .withCreator(catalog.auditInfo().creator())
                         .withCreateTime(catalog.auditInfo().createTime())
-                        .withLastModifier(
-                            catalog.auditInfo().creator()) /* TODO. We should use real user */
+                        .withLastModifier(PrincipalUtils.getCurrentPrincipal().getName())
                         .withLastModifiedTime(Instant.now())
                         .build();
                 newCatalogBuilder.withAuditInfo(newInfo);
@@ -386,7 +409,7 @@ public class CatalogManager implements SupportsCatalogs, Closeable {
 
     } catch (NoSuchEntityException ne) {
       LOG.warn("Catalog {} does not exist", ident, ne);
-      throw new NoSuchCatalogException("Catalog " + ident + " does not exist");
+      throw new NoSuchCatalogException(CATALOG_DOES_NOT_EXIST_MSG, ident);
 
     } catch (IllegalArgumentException iae) {
       LOG.warn("Failed to alter catalog {} with unknown change", ident, iae);
@@ -436,7 +459,7 @@ public class CatalogManager implements SupportsCatalogs, Closeable {
 
     } catch (NoSuchEntityException ne) {
       LOG.warn("Catalog {} does not exist", ident, ne);
-      throw new NoSuchCatalogException("Catalog " + ident + " does not exist");
+      throw new NoSuchCatalogException(CATALOG_DOES_NOT_EXIST_MSG, ident);
 
     } catch (IOException ioe) {
       LOG.error("Failed to load catalog {}", ident, ioe);
@@ -470,7 +493,7 @@ public class CatalogManager implements SupportsCatalogs, Closeable {
         cl -> {
           Map<String, String> configWithoutId = Maps.newHashMap(conf);
           configWithoutId.remove(ID_KEY);
-          catalog.ops().catalogPropertiesMetadata().validatePropertyForCreate(configWithoutId);
+          validatePropertyForCreate(catalog.ops().catalogPropertiesMetadata(), configWithoutId);
 
           // Call wrapper.catalog.properties() to make BaseCatalog#properties in IsolatedClassLoader
           // not null. Why we do this? Because wrapper.catalog.properties() need to be called in the
@@ -494,7 +517,7 @@ public class CatalogManager implements SupportsCatalogs, Closeable {
                 try {
                   Class<? extends CatalogProvider> providerClz =
                       lookupCatalogProvider(provider, cl);
-                  return (BaseCatalog) providerClz.newInstance();
+                  return (BaseCatalog) providerClz.getDeclaredConstructor().newInstance();
                 } catch (Exception e) {
                   LOG.error("Failed to load catalog with provider: {}", provider, e);
                   throw new RuntimeException(e);
@@ -593,7 +616,7 @@ public class CatalogManager implements SupportsCatalogs, Closeable {
             .map(CatalogProvider::getClass)
             .collect(Collectors.toList());
 
-    if (providers.size() == 0) {
+    if (providers.isEmpty()) {
       throw new IllegalArgumentException("No catalog provider found for: " + provider);
     } else if (providers.size() > 1) {
       throw new IllegalArgumentException("Multiple catalog providers found for: " + provider);

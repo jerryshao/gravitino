@@ -19,6 +19,11 @@ public class TestTypes {
     Assertions.assertSame(booleanType, Types.BooleanType.get());
     Assertions.assertEquals("boolean", booleanType.simpleString());
 
+    Types.NullType nullType = Types.NullType.get();
+    Assertions.assertEquals(Type.Name.NULL, nullType.name());
+    Assertions.assertSame(nullType, Types.NullType.get());
+    Assertions.assertEquals("null", nullType.simpleString());
+
     Types.ByteType byteType = Types.ByteType.get();
     Assertions.assertEquals(Type.Name.BYTE, byteType.name());
     Assertions.assertSame(byteType, Types.ByteType.get());
@@ -173,5 +178,14 @@ public class TestTypes {
     Assertions.assertEquals(3, unionType.types().length);
     Assertions.assertEquals("union<integer,string,boolean>", unionType.simpleString());
     Assertions.assertEquals(unionType, Types.UnionType.of(unionType.types()));
+  }
+
+  @Test
+  public void testUnparsedType() {
+    Types.UnparsedType unparsedType = Types.UnparsedType.of("bit");
+    Assertions.assertEquals(Type.Name.UNPARSED, unparsedType.name());
+    Assertions.assertEquals("unparsed(bit)", unparsedType.simpleString());
+    Assertions.assertEquals("bit", unparsedType.unparsedType());
+    Assertions.assertEquals(unparsedType, Types.UnparsedType.of("bit"));
   }
 }

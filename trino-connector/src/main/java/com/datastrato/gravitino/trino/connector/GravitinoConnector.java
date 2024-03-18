@@ -9,9 +9,9 @@ import com.datastrato.gravitino.client.GravitinoMetaLake;
 import com.datastrato.gravitino.trino.connector.catalog.CatalogConnectorContext;
 import com.datastrato.gravitino.trino.connector.catalog.CatalogConnectorMetadata;
 import com.google.common.base.Preconditions;
-import io.trino.plugin.base.security.AllowAllAccessControl;
 import io.trino.spi.connector.Connector;
 import io.trino.spi.connector.ConnectorAccessControl;
+import io.trino.spi.connector.ConnectorCapabilities;
 import io.trino.spi.connector.ConnectorMetadata;
 import io.trino.spi.connector.ConnectorPageSinkProvider;
 import io.trino.spi.connector.ConnectorPageSourceProvider;
@@ -22,6 +22,7 @@ import io.trino.spi.connector.ConnectorTransactionHandle;
 import io.trino.spi.session.PropertyMetadata;
 import io.trino.spi.transaction.IsolationLevel;
 import java.util.List;
+import java.util.Set;
 
 /**
  * GravitinoConnector serves as the entry point for operations on the connector managed by Trino and
@@ -132,6 +133,12 @@ public class GravitinoConnector implements Connector {
 
   @Override
   public ConnectorAccessControl getAccessControl() {
-    return new AllowAllAccessControl();
+    Connector internalConnector = catalogConnectorContext.getInternalConnector();
+    return internalConnector.getAccessControl();
+  }
+
+  @Override
+  public Set<ConnectorCapabilities> getCapabilities() {
+    return catalogConnectorContext.getInternalConnector().getCapabilities();
   }
 }
