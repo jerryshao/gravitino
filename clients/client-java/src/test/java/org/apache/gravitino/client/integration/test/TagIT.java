@@ -511,21 +511,20 @@ public class TagIT extends BaseIT {
 
   @Test
   public void testAssociateAndDeleteTags() {
-    Tag tag1 = metalake.createTag(
-        GravitinoITUtils.genRandomName("tag_it_tag1"),
-        "comment1",
-        Collections.emptyMap());
-    Tag tag2 = metalake.createTag(
-        GravitinoITUtils.genRandomName("tag_it_tag2"),
-        "comment2",
-        Collections.emptyMap());
-    Tag tag3 = metalake.createTag(
-        GravitinoITUtils.genRandomName("tag_it_tag3"),
-        "comment3",
-        Collections.emptyMap());
+    Tag tag1 =
+        metalake.createTag(
+            GravitinoITUtils.genRandomName("tag_it_tag1"), "comment1", Collections.emptyMap());
+    Tag tag2 =
+        metalake.createTag(
+            GravitinoITUtils.genRandomName("tag_it_tag2"), "comment2", Collections.emptyMap());
+    Tag tag3 =
+        metalake.createTag(
+            GravitinoITUtils.genRandomName("tag_it_tag3"), "comment3", Collections.emptyMap());
 
-    String[] associatedTags = relationalCatalog.supportsTags().associateTags(
-        new String[] {tag1.name(), tag2.name()}, new String[] {tag3.name()});
+    String[] associatedTags =
+        relationalCatalog
+            .supportsTags()
+            .associateTags(new String[] {tag1.name(), tag2.name()}, new String[] {tag3.name()});
 
     Assertions.assertEquals(2, associatedTags.length);
     Set<String> tagNames = Sets.newHashSet(associatedTags);
@@ -544,7 +543,6 @@ public class TagIT extends BaseIT {
     Assertions.assertTrue(deleted);
     deleted = metalake.deleteTag(tag1.name());
     Assertions.assertFalse(deleted);
-
 
     String[] associatedTags1 = relationalCatalog.supportsTags().listTags();
     Assertions.assertArrayEquals(new String[] {tag2.name()}, associatedTags1);
