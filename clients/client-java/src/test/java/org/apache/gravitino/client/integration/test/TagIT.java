@@ -508,4 +508,25 @@ public class TagIT extends BaseIT {
     Assertions.assertEquals(
         MetadataObject.Type.TABLE, tag3.associatedObjects().objects()[0].type());
   }
+
+  @Test
+  public void testDeleteNullTags() {
+    Tag tag1 = metalake.createTag(
+        GravitinoITUtils.genRandomName("tag_it_tag1"),
+        "comment1",
+        Collections.emptyMap());
+    Tag tag2 = metalake.createTag(
+        GravitinoITUtils.genRandomName("tag_it_tag2"),
+        "comment2",
+        Collections.emptyMap());
+    Tag tag3 = metalake.createTag(
+        GravitinoITUtils.genRandomName("tag_it_tag3"),
+        "comment3",
+        Collections.emptyMap());
+
+    String[] associatedTags = relationalCatalog.supportsTags()
+
+
+
+  }
 }
