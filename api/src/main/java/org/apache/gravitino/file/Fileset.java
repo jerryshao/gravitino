@@ -42,6 +42,31 @@ import org.apache.gravitino.tag.SupportsTags;
 @Evolving
 public interface Fileset extends Auditable {
 
+  /**
+   * The prefix for the location status key in the properties of the fileset object. The location
+   * status property is used to store the status of the location of the fileset object, which can
+   * be one of the {@link LocationStatus}.
+   */
+  String PROPERTY_LOCATION_STATUS_PREFIX = "location-status-";
+
+  /** An enum representing the status of the location of the fileset object. */
+  enum LocationStatus {
+
+    /** The location of the fileset object is out of sync with the actual data. */
+    OUT_OF_SYNC,
+
+    /** The location of the fileset object is in sync with the actual data. */
+    IN_SYNC,
+
+    /** The location of the fileset object is synced and available as latest. */
+    LATEST
+  }
+
+  /**
+   * The property key for the default location of the fileset object.
+   */
+  String PROPERTY_DEFAULT_LOCATION = "default-location";
+
   /** An enum representing the type of the fileset object. */
   enum Type {
 
@@ -131,5 +156,9 @@ public interface Fileset extends Auditable {
    */
   default SupportsCredentials supportsCredentials() {
     throw new UnsupportedOperationException("Fileset does not support credential operations.");
+  }
+
+  default SupportsSync supportsSync() {
+    throw new UnsupportedOperationException("Fileset does not support sync operations.");
   }
 }
