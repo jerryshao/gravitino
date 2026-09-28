@@ -31,6 +31,7 @@ import javax.tools.ToolProvider;
 import org.apache.commons.io.FileUtils;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
+import org.apache.gravitino.connector.job.JobContext;
 import org.apache.gravitino.connector.job.JobExecutionInfo;
 import org.apache.gravitino.connector.job.JobExecutor;
 import org.apache.gravitino.exceptions.NoSuchJobException;
@@ -162,6 +163,21 @@ public class TestJobExecutorFactory {
         () -> JobExecutorFactory.checkJobExecutorClass(String.class));
   }
 
+  @Test
+  public void testRejectJobExecutorWithoutSubmitJob() {
+    // Either submit method is enough: the old one through the default of the new one.
+    Assertions.assertDoesNotThrow(
+        () -> JobExecutorFactory.checkJobExecutorClass(RecordingJobExecutor.class));
+    Assertions.assertDoesNotThrow(
+        () -> JobExecutorFactory.checkJobExecutorClass(ContextJobExecutor.class));
+
+    IllegalArgumentException e =
+        Assertions.assertThrows(
+            IllegalArgumentException.class,
+            () -> JobExecutorFactory.checkJobExecutorClass(NoSubmitJobExecutor.class));
+    Assertions.assertTrue(e.getMessage().contains("submitJob"), e.getMessage());
+  }
+
   // Compiles a job executor against the SPI as it was before getJobExecutionInfo was added, and
   // loads it against the current SPI, like a plugin jar built for an older Gravitino version.
   private Class<?> compileAgainstOldSpi() throws IOException {
@@ -238,6 +254,9 @@ public class TestJobExecutorFactory {
   public static class CustomLocalJobExecutor extends LocalJobExecutor {}
 
   /** A job executor that only records the configurations it's initialized with. */
+  // Implements the deprecated submitJob(JobTemplate), like a job executor built for an earlier
+  // version of Gravitino.
+  @SuppressWarnings("deprecation")
   public static class RecordingJobExecutor implements JobExecutor {
 
     private Map<String, String> configs;
@@ -251,6 +270,33 @@ public class TestJobExecutorFactory {
     public String submitJob(JobTemplate jobTemplate) {
       throw new UnsupportedOperationException();
     }
+
+    @Override
+    public JobExecutionInfo getJobExecutionInfo(String jobId) throws NoSuchJobException {
+      throw new NoSuchJobException("No job found with ID: %s", jobId);
+    }
+
+    @Override
+    public void cancelJob(String jobId) throws NoSuchJobException {
+      throw new NoSuchJobException("No job found with ID: %s", jobId);
+    }
+
+    @Override
+    public void close() {}
+  }
+
+  public static class ContextJobExecutor extends NoSubmitJobExecutor {
+
+    @Override
+    public String submitJob(JobContext context, JobTemplate jobTemplate) {
+      throw new UnsupportedOperationException();
+    }
+  }
+
+  public static class NoSubmitJobExecutor implements JobExecutor {
+
+    @Override
+    public void initialize(Map<String, String> configs) {}
 
     @Override
     public JobExecutionInfo getJobExecutionInfo(String jobId) throws NoSuchJobException {
