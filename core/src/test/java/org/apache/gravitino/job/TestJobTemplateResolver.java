@@ -20,34 +20,24 @@ package org.apache.gravitino.job;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
-import com.sun.net.httpserver.HttpServer;
 import java.io.File;
 import java.io.IOException;
-import java.io.OutputStream;
-import java.net.InetSocketAddress;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
-import java.util.UUID;
 import java.util.stream.Collectors;
 import org.apache.commons.io.FileUtils;
 import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.JobTemplateEntity;
-import org.apache.gravitino.utils.FileFetcher;
 import org.apache.gravitino.utils.NamespaceUtil;
 import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 public class TestJobTemplateResolver {
 
   private static File tempDir;
-  private File tempStagingDir;
 
   @BeforeAll
   public static void setUpClass() throws IOException {
@@ -62,45 +52,6 @@ public class TestJobTemplateResolver {
       FileUtils.deleteDirectory(tempDir);
       tempDir = null;
     }
-  }
-
-  @BeforeEach
-  public void setUp() throws IOException {
-    // Create a temporary staging directory for each test
-    tempStagingDir = Files.createTempDirectory(tempDir.toPath(), "staging").toFile();
-  }
-
-  @AfterEach
-  public void tearDown() throws IOException {
-    // Clean up the temporary staging directory after each test
-    if (tempStagingDir != null && tempStagingDir.exists()) {
-      FileUtils.deleteDirectory(tempStagingDir);
-      tempStagingDir = null;
-    }
-  }
-
-  @Test
-  public void testFetchFilesFromUir() throws IOException {
-    File testFile1 = Files.createTempFile(tempDir.toPath(), "testFile1", ".txt").toFile();
-    String result =
-        JobTemplateResolver.fetchFileFromUri(
-            testFile1.toURI().toString(), tempStagingDir, 30 * 1000);
-    File resultFile = new File(result);
-    Assertions.assertEquals(testFile1.getName(), resultFile.getName());
-
-    File testFile2 = Files.createTempFile(tempDir.toPath(), "testFile2", ".txt").toFile();
-    File testFile3 = Files.createTempFile(tempDir.toPath(), "testFile3", ".txt").toFile();
-
-    List<String> expectedUris =
-        Lists.newArrayList(testFile2.toURI().toString(), testFile3.toURI().toString());
-    List<String> resultUris =
-        JobTemplateResolver.fetchFilesFromUri(expectedUris, tempStagingDir, 30 * 1000);
-
-    Assertions.assertEquals(2, resultUris.size());
-    List<String> resultFileNames =
-        resultUris.stream().map(uri -> new File(uri).getName()).collect(Collectors.toList());
-    Assertions.assertTrue(resultFileNames.contains(testFile2.getName()));
-    Assertions.assertTrue(resultFileNames.contains(testFile3.getName()));
   }
 
   @Test
@@ -140,8 +91,7 @@ public class TestJobTemplateResolver {
                     "arg4", "value4",
                     "val1", "value1",
                     "val2", "value2",
-                    "customVal1", "customValue1"),
-                tempStagingDir);
+                    "customVal1", "customValue1"));
 
     Assertions.assertEquals(shellJobTemplate.name(), result.name());
     Assertions.assertEquals(shellJobTemplate.comment(), result.comment());
@@ -203,8 +153,7 @@ public class TestJobTemplateResolver {
                     "val2", "value2",
                     "customVal1", "customValue1",
                     "scriptName1", "testScript1",
-                    "scriptName2", "testScript2"),
-                tempStagingDir);
+                    "scriptName2", "testScript2"));
 
     Assertions.assertEquals("echo", new File(result.executable).getName());
     Assertions.assertEquals(2, ((ShellJobTemplate) result).scripts().size());
@@ -269,8 +218,7 @@ public class TestJobTemplateResolver {
                     "val2", "value2",
                     "customVal1", "customValue1",
                     "executor-mem", "4g",
-                    "driver-cores", "2"),
-                tempStagingDir);
+                    "driver-cores", "2"));
 
     Assertions.assertEquals(sparkJobTemplate.name(), result.name());
     Assertions.assertEquals(sparkJobTemplate.comment(), result.comment());
@@ -367,8 +315,7 @@ public class TestJobTemplateResolver {
                     "customVal1", "customValue1",
                     "executor-mem", "4g",
                     "driver-cores", "2",
-                    "env", "test"),
-                tempStagingDir);
+                    "env", "test"));
 
     Assertions.assertEquals(executable.getName(), new File(result.executable).getName());
     Assertions.assertEquals(Lists.newArrayList("arg1", "arg2", "value3"), result.arguments());
@@ -425,22 +372,40 @@ public class TestJobTemplateResolver {
         shellTemplateEntity(
             Lists.newArrayList("--table", "{{table}}", "--mode", "{{mode:-full}}", "{{note:-}}"));
 
-    JobTemplate result =
-        new JobTemplateResolver(entity).resolve(ImmutableMap.of("table", "t"), tempStagingDir);
+    JobTemplate result = new JobTemplateResolver(entity).resolve(ImmutableMap.of("table", "t"));
     Assertions.assertEquals(
         Lists.newArrayList("--table", "t", "--mode", "full", ""), result.arguments());
   }
 
   @Test
-  public void testCreateFailsBeforeFetchingOnMissingParameters() {
+  public void testCreateFailsOnMissingParameters() {
     JobTemplateEntity entity = shellTemplateEntity(Lists.newArrayList("{{table}}"));
 
-    Assertions.assertThrows(
-        IllegalArgumentException.class,
-        () -> new JobTemplateResolver(entity).resolve(ImmutableMap.of(), tempStagingDir));
-    // The executable is not fetched when a parameter is missing.
-    String[] staged = tempStagingDir.list();
-    Assertions.assertTrue(staged == null || staged.length == 0);
+    IllegalArgumentException e =
+        Assertions.assertThrows(
+            IllegalArgumentException.class,
+            () -> new JobTemplateResolver(entity).resolve(ImmutableMap.of()));
+    Assertions.assertTrue(e.getMessage().contains("table"), e.getMessage());
+  }
+
+  @Test
+  public void testResolveKeepsResourceUris() {
+    SparkJobTemplate template =
+        SparkJobTemplate.builder()
+            .withName("spark_job")
+            .withExecutable("https://repo.example.com/{{version}}/app.jar")
+            .withClassName("org.example.App")
+            .withJars(Lists.newArrayList("s3a://bucket/lib-{{version}}.jar"))
+            .withFiles(Lists.newArrayList("hdfs://nn/conf/app.conf"))
+            .build();
+
+    SparkJobTemplate result =
+        (SparkJobTemplate)
+            new JobTemplateResolver(toEntity(template)).resolve(ImmutableMap.of("version", "1.0"));
+
+    Assertions.assertEquals("https://repo.example.com/1.0/app.jar", result.executable());
+    Assertions.assertEquals(Lists.newArrayList("s3a://bucket/lib-1.0.jar"), result.jars());
+    Assertions.assertEquals(Lists.newArrayList("hdfs://nn/conf/app.conf"), result.files());
   }
 
   @Test
@@ -457,101 +422,8 @@ public class TestJobTemplateResolver {
         Assertions.assertThrows(
             IllegalArgumentException.class,
             () ->
-                new JobTemplateResolver(entity)
-                    .resolve(ImmutableMap.of("a", "SAME", "b", "SAME"), tempStagingDir));
+                new JobTemplateResolver(entity).resolve(ImmutableMap.of("a", "SAME", "b", "SAME")));
     Assertions.assertTrue(e.getMessage().contains("SAME"), e.getMessage());
-  }
-
-  private static HttpServer createLoopbackHttpServer(String response) throws IOException {
-    HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-    server.createContext(
-        "/artifact.jar",
-        exchange -> {
-          byte[] bytes = response.getBytes(StandardCharsets.UTF_8);
-          exchange.sendResponseHeaders(200, bytes.length);
-          try (OutputStream outputStream = exchange.getResponseBody()) {
-            outputStream.write(bytes);
-          }
-        });
-    return server;
-  }
-
-  @Test
-  public void testFetchFileFromUriWithMissingLocalFileShouldFail() throws IOException {
-    File stagingDir = tempStagingDir;
-
-    Path missingFilePath =
-        Path.of(System.getProperty("java.io.tmpdir"), "missing-job-file-" + UUID.randomUUID());
-    String uri = missingFilePath.toUri().toString();
-
-    Assertions.assertThrows(
-        RuntimeException.class, () -> JobTemplateResolver.fetchFileFromUri(uri, stagingDir, 1000));
-  }
-
-  @Test
-  public void testFetchFileFromUriSsrfBlocked() {
-    File stagingDir = tempStagingDir;
-    FileFetcher.get().initialize(true);
-
-    // Loopback address
-    RuntimeException e1 =
-        Assertions.assertThrows(
-            RuntimeException.class,
-            () ->
-                JobTemplateResolver.fetchFileFromUri(
-                    "http://127.0.0.1:8090/configs", stagingDir, 1000));
-    assertRemoteUriBlockedMessage(e1);
-
-    // AWS / GCP / Azure cloud-metadata endpoint (link-local 169.254.x.x)
-    RuntimeException e2 =
-        Assertions.assertThrows(
-            RuntimeException.class,
-            () ->
-                JobTemplateResolver.fetchFileFromUri(
-                    "http://169.254.169.254/latest/meta-data/", stagingDir, 1000));
-    assertRemoteUriBlockedMessage(e2);
-
-    // RFC-1918 private range
-    RuntimeException e3 =
-        Assertions.assertThrows(
-            RuntimeException.class,
-            () -> JobTemplateResolver.fetchFileFromUri("http://192.168.1.1/", stagingDir, 1000));
-    assertRemoteUriBlockedMessage(e3);
-
-    // Alibaba Cloud / Oracle Cloud metadata endpoint
-    RuntimeException e4 =
-        Assertions.assertThrows(
-            RuntimeException.class,
-            () ->
-                JobTemplateResolver.fetchFileFromUri("http://100.100.100.200/", stagingDir, 1000));
-    assertRemoteUriBlockedMessage(e4);
-  }
-
-  @Test
-  public void testFetchFileFromUriShouldAllowLocalhostWhenBlockingDisabled() throws Exception {
-    File stagingDir = tempStagingDir;
-    HttpServer server = createLoopbackHttpServer("job artifact");
-
-    try {
-      server.start();
-      int port = server.getAddress().getPort();
-      FileFetcher.get().initialize(false);
-
-      String fetchedFile =
-          JobTemplateResolver.fetchFileFromUri(
-              String.format("http://127.0.0.1:%d/artifact.jar", port), stagingDir, 1000);
-
-      Assertions.assertEquals("job artifact", Files.readString(Path.of(fetchedFile)));
-    } finally {
-      FileFetcher.get().initialize(true);
-      server.stop(0);
-    }
-  }
-
-  private static void assertRemoteUriBlockedMessage(RuntimeException exception) {
-    Assertions.assertTrue(exception.getCause().getMessage().contains("Gravitino server side"));
-    Assertions.assertTrue(
-        exception.getCause().getMessage().contains(FileFetcher.BLOCK_UNSAFE_REMOTE_URI_CONFIG));
   }
 
   private static JobTemplateEntity shellTemplateEntity(List<String> arguments) {
