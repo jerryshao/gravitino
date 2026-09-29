@@ -47,6 +47,21 @@ a job runs. See [Placeholders](#placeholders).
 `executable` and `scripts` must be reachable by the Gravitino server, which accepts local paths and
 HTTP, HTTPS, FTP, and FTPS URLs.
 
+`executable` can also be a command name with no path, such as `python` or `bash`. Such a command is
+not fetched: the job runs it by looking it up on the `PATH` of the environment it runs in. The
+scripts are still fetched next to it, into the job's working directory, so a template can run a
+script with an installed interpreter:
+
+```json
+{
+  "name": "python_report",
+  "jobType": "shell",
+  "executable": "python",
+  "arguments": ["report.py", "{{date}}"],
+  "scripts": ["https://repo.example.com/jobs/report.py"]
+}
+```
+
 <Tabs groupId='language' queryString>
 <TabItem value="shell" label="REST">
 
