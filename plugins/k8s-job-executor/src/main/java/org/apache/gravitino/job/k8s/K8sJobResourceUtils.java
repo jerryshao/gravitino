@@ -20,6 +20,8 @@ package org.apache.gravitino.job.k8s;
 
 import com.google.common.collect.ImmutableMap;
 import io.fabric8.kubernetes.api.model.HasMetadata;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.Map;
 import java.util.regex.Pattern;
 
@@ -55,6 +57,25 @@ public final class K8sJobResourceUtils {
    */
   public static boolean isValidNamespace(String namespace) {
     return namespace != null && NAMESPACE_PATTERN.matcher(namespace).matches();
+  }
+
+  /**
+   * Returns whether a resource of a job can be reached from the job cluster. A resource without a
+   * scheme or with the {@code file} scheme is a path on the Gravitino server, which the pods of the
+   * job can't reach.
+   *
+   * @param uri the URI of the resource
+   * @return true if the URI has a scheme other than {@code file}
+   * @throws IllegalArgumentException if the URI is invalid
+   */
+  public static boolean isClusterReachable(String uri) {
+    String scheme;
+    try {
+      scheme = new URI(uri).getScheme();
+    } catch (URISyntaxException e) {
+      throw new IllegalArgumentException("Invalid resource URI: " + uri, e);
+    }
+    return scheme != null && !"file".equalsIgnoreCase(scheme);
   }
 
   /**
