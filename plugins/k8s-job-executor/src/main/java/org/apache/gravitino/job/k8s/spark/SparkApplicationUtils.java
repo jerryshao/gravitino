@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.regex.Pattern;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.connector.job.JobContext;
 import org.apache.gravitino.job.JobTemplateProvider;
@@ -76,6 +77,12 @@ public final class SparkApplicationUtils {
   private static final String SPARK_JARS = "spark.jars";
   private static final String SPARK_FILES = "spark.files";
   private static final String SPARK_ARCHIVES = "spark.archives";
+  private static final String SPARK_DRIVER_ENV_PREFIX = "spark.kubernetes.driverEnv.";
+  private static final String SPARK_EXECUTOR_ENV_PREFIX = "spark.executorEnv.";
+
+  // The names every Kubernetes version accepts for the environment variable of a container.
+  private static final Pattern ENVIRONMENT_NAME_PATTERN =
+      Pattern.compile("[-._a-zA-Z][-._a-zA-Z0-9]*");
 
   private SparkApplicationUtils() {}
 
@@ -83,6 +90,12 @@ public final class SparkApplicationUtils {
    * Builds the SparkApplication of a Spark job. A built-in job, whose executable is the jobs jar on
    * the Gravitino server, runs the jar of {@link K8sJobExecutorConfigs#SPARK_BUILTIN_JOBS_JAR}
    * instead.
+   *
+   * <p>The environment variables of the job template are set for the driver and the executors
+   * through the Spark configurations {@code spark.kubernetes.driverEnv.*} and {@code
+   * spark.executorEnv.*}, so their values can be read in the SparkApplication and in its pods. They
+   * override the default Spark configurations of the job executor, and the Spark configurations of
+   * the job template override them.
    *
    * @param context the context of the job run
    * @param template the runtime job template, whose resources are the URIs given in the template
@@ -92,14 +105,7 @@ public final class SparkApplicationUtils {
    */
   public static GenericKubernetesResource buildSparkApplication(
       JobContext context, SparkJobTemplate template, K8sJobExecutorConfigs configs) {
-    if (!template.environments().isEmpty()) {
-      throw new IllegalArgumentException(
-          String.format(
-              "Job template %s sets environment variables %s, which the k8s job executor doesn't"
-                  + " support yet. Pass them as Spark configurations instead, for example"
-                  + " spark.kubernetes.driverEnv.<name> and spark.executorEnv.<name>",
-              template.name(), template.environments().keySet()));
-    }
+    template.environments().keySet().forEach(name -> checkEnvironmentName(template, name));
 
     String executable = getExecutableUri(template, configs);
     checkClusterReachable(executable);
@@ -108,6 +114,13 @@ public final class SparkApplicationUtils {
     template.archives().forEach(SparkApplicationUtils::checkClusterReachable);
 
     Map<String, String> sparkConf = new TreeMap<>(configs.sparkConf());
+    template
+        .environments()
+        .forEach(
+            (name, value) -> {
+              sparkConf.put(SPARK_DRIVER_ENV_PREFIX + name, value);
+              sparkConf.put(SPARK_EXECUTOR_ENV_PREFIX + name, value);
+            });
     sparkConf.putAll(template.configs());
     // The operator decides the master and the deploy mode.
     sparkConf.remove(SPARK_MASTER);
@@ -178,6 +191,18 @@ public final class SparkApplicationUtils {
       return configs.sparkBuiltinJobsJar();
     }
     return template.executable();
+  }
+
+  private static void checkEnvironmentName(SparkJobTemplate template, String name) {
+    // Checked here, as Kubernetes would otherwise reject the name only when the operator creates
+    // the driver pod.
+    if (!ENVIRONMENT_NAME_PATTERN.matcher(name).matches()) {
+      throw new IllegalArgumentException(
+          String.format(
+              "Environment variable name %s of job template %s is invalid: it must consist of"
+                  + " letters, digits, '_', '-' or '.', and must not start with a digit",
+              name, template.name()));
+    }
   }
 
   private static void checkClusterReachable(String uri) {
