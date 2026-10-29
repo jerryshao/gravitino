@@ -161,6 +161,17 @@ public interface DomainMetaMapper {
   List<DomainPO> listDomainPOsByParentId(@Param("parentId") Long parentId);
 
   /**
+   * Lists the active domains backed by a tag, with or without a value.
+   *
+   * @param metalakeId The metalake ID.
+   * @param backingTagId The ID of the backing tag.
+   * @return The active domains backed by the tag.
+   */
+  @SelectProvider(type = DomainMetaSQLProviderFactory.class, method = "listDomainPOsByBackingTagId")
+  List<DomainPO> listDomainPOsByBackingTagId(
+      @Param("metalakeId") Long metalakeId, @Param("backingTagId") Long backingTagId);
+
+  /**
    * Inserts a domain.
    *
    * @param domainPO The domain to insert.
