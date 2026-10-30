@@ -246,6 +246,29 @@ public class DomainMetaBaseSQLProvider {
   }
 
   /**
+   * Builds an indexed lookup of live domains by backing tag IDs in a metalake.
+   *
+   * @param metalakeName The metalake name.
+   * @param backingTagIds The nonempty tag ID list.
+   * @return The lookup SQL.
+   */
+  public String listDomainPOsByMetalakeAndBackingTagIds(
+      String metalakeName, List<Long> backingTagIds) {
+    return "<script>SELECT "
+        + DOMAIN_COLUMNS_WITH_BACKING_TAG_NAME
+        + " FROM "
+        + DOMAIN_TABLE_NAME
+        + " dm JOIN "
+        + MetalakeMetaMapper.TABLE_NAME
+        + " mm ON dm.metalake_id = mm.metalake_id"
+        + BACKING_TAG_JOIN
+        + " WHERE mm.metalake_name = #{metalakeName} AND mm.deleted_at = 0 AND dm.deleted_at = 0"
+        + " AND dm.backing_tag_id IN "
+        + "<foreach collection='backingTagIds' item='tagId' open='(' separator=',' close=')'>#{tagId}</foreach>"
+        + " AND bt.tag_id IS NOT NULL</script>";
+  }
+
+  /**
    * Returns SQL that inserts a domain.
    *
    * @param domainPO The domain to insert.
