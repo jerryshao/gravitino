@@ -147,4 +147,24 @@ public class TestMetadataObjectDTO {
         JsonUtils.objectMapper().readValue(serJson, MetadataObjectDTO.class);
     Assertions.assertEquals(filesetDTO, deserFilesetDTO);
   }
+
+  @Test
+  void testDottedDomainNameWithEitherFieldOrder() throws JsonProcessingException {
+    MetadataObjectDTO expected =
+        MetadataObjectDTO.builder()
+            .withName("Finance.US")
+            .withType(MetadataObject.Type.DOMAIN)
+            .build();
+    for (String json :
+        new String[] {
+          "{\"fullName\":\"Finance.US\",\"type\":\"domain\"}",
+          "{\"type\":\"domain\",\"fullName\":\"Finance.US\"}"
+        }) {
+      MetadataObjectDTO decoded = JsonUtils.objectMapper().readValue(json, MetadataObjectDTO.class);
+      Assertions.assertEquals(expected, decoded);
+      Assertions.assertEquals("Finance.US", decoded.name());
+      Assertions.assertEquals("Finance.US", decoded.fullName());
+      Assertions.assertNull(decoded.parent());
+    }
+  }
 }

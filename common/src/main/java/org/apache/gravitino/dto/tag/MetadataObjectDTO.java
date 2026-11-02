@@ -18,6 +18,7 @@
  */
 package org.apache.gravitino.dto.tag;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.EqualsAndHashCode;
 import org.apache.gravitino.MetadataObject;
@@ -34,6 +35,14 @@ public class MetadataObjectDTO implements MetadataObject {
   private Type type;
 
   private MetadataObjectDTO() {}
+
+  @JsonCreator
+  private MetadataObjectDTO(
+      @JsonProperty("fullName") String fullName, @JsonProperty("type") Type type) {
+    // Read both fields together: DOMAIN names may contain dots, regardless of JSON field order.
+    this.type = type;
+    setFullName(fullName);
+  }
 
   @Override
   public String parent() {
@@ -65,7 +74,7 @@ public class MetadataObjectDTO implements MetadataObject {
    */
   @JsonProperty("fullName")
   public void setFullName(String fullName) {
-    int index = fullName.lastIndexOf(".");
+    int index = type == Type.DOMAIN ? -1 : fullName.lastIndexOf(".");
     if (index == -1) {
       parent = null;
       name = fullName;
