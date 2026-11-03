@@ -235,6 +235,8 @@ components:
             - CREATE_SEMANTIC_MODEL
             - USE_SEMANTIC_MODEL
             - MODIFY_SEMANTIC_MODEL
+            - MANAGE_DOMAIN
+            - USE_DOMAIN
           description: The name of the privilege
         condition:
           type: string
@@ -251,11 +253,12 @@ components:
       properties:
         fullName:
           type: string
-          description: The full name of the securable object
+          description: The full name of the securable object. For DOMAIN, use the literal domain name (including dots or slashes), without its parent or metalake prefix.
         type:
           type: string
           enum:
             - "METALAKE"
+            - "DOMAIN"
             - "CATALOG"
             - "SCHEMA"
             - "TABLE"
