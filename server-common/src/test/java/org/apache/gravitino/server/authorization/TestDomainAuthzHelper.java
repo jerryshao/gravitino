@@ -21,12 +21,16 @@ package org.apache.gravitino.server.authorization;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
@@ -35,10 +39,15 @@ import static org.mockito.Mockito.when;
 
 import java.security.Principal;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import javax.servlet.DispatcherType;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.GravitinoEnv;
@@ -49,11 +58,28 @@ import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.Privilege;
 import org.apache.gravitino.domain.Domain;
 import org.apache.gravitino.domain.DomainDispatcher;
+import org.apache.gravitino.domain.DomainMember;
+import org.apache.gravitino.domain.DomainMemberFilter;
+import org.apache.gravitino.domain.DomainMemberInfo;
+import org.apache.gravitino.domain.DomainRelation;
 import org.apache.gravitino.exceptions.ForbiddenException;
 import org.apache.gravitino.exceptions.NoSuchDomainException;
+import org.apache.gravitino.listener.DomainEventDispatcher;
+import org.apache.gravitino.listener.EventBus;
+import org.apache.gravitino.listener.api.EventListenerPlugin;
+import org.apache.gravitino.listener.api.event.BaseEvent;
+import org.apache.gravitino.listener.api.event.EventSource;
+import org.apache.gravitino.listener.api.event.domain.GetDomainEvent;
+import org.apache.gravitino.listener.api.event.domain.GetDomainPreEvent;
+import org.apache.gravitino.listener.api.event.domain.ListDomainMembersEvent;
+import org.apache.gravitino.listener.api.event.domain.ListDomainMembersPreEvent;
+import org.apache.gravitino.listener.api.event.domain.ListSubdomainsInfoEvent;
+import org.apache.gravitino.listener.api.event.domain.ListSubdomainsInfoPreEvent;
 import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.DomainEntity;
+import org.apache.gravitino.server.web.HttpAuditFilter;
 import org.apache.gravitino.utils.NamespaceUtil;
+import org.apache.gravitino.utils.RequestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -94,6 +120,7 @@ class TestDomainAuthzHelper {
   @AfterEach
   void tearDown() {
     environment.close();
+    RequestContext.clear();
   }
 
   @ParameterizedTest
@@ -210,6 +237,164 @@ class TestDomainAuthzHelper {
     assertFalse(DomainAuthzHelper.visible("lake", child));
     assertThrows(
         ForbiddenException.class, () -> DomainAuthzHelper.requireBackingTag("lake", "tag", true));
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"unknown", "Secret"})
+  void emptyAuthorizedMemberScopeStillEmitsQueryEvents(String scope) throws Exception {
+    allows.add("Finance:USE_DOMAIN");
+    DomainEntity finance = domain("Finance", null, Domain.Status.PUBLISHED);
+    DomainDispatcher delegate = memberDispatcher(finance);
+    DomainMemberFilter filter =
+        DomainMemberFilter.builder()
+            .withDomains(scope)
+            .withTypes(MetadataObject.Type.TABLE)
+            .withNameContains("trades")
+            .build();
+    when(delegate.listMembers(eq("lake"), eq(finance), any(DomainEntity[].class), eq(filter)))
+        .thenReturn(new DomainMember[0]);
+    List<BaseEvent> events = new ArrayList<>();
+    EventListenerPlugin listener = recordingListener(events);
+    EventBus bus = new EventBus(Collections.singletonList(listener));
+    DomainEventDispatcher dispatcher = new DomainEventDispatcher(bus, delegate);
+    HttpServletRequest request = mock(HttpServletRequest.class);
+    when(request.getMethod()).thenReturn("GET");
+    when(request.getRequestURI()).thenReturn("/api/metalakes/lake/domains/Finance/objects");
+    when(request.getDispatcherType()).thenReturn(DispatcherType.REQUEST);
+    new HttpAuditFilter(bus, EventSource.GRAVITINO_SERVER)
+        .doFilter(
+            request,
+            mock(HttpServletResponse.class),
+            (req, response) ->
+                assertEquals(
+                    0,
+                    DomainAuthzHelper.listMembers(dispatcher, "lake", "Finance", filter).length));
+    assertEquals(6, events.size());
+    assertInstanceOf(GetDomainPreEvent.class, events.get(0));
+    assertInstanceOf(GetDomainEvent.class, events.get(1));
+    assertInstanceOf(ListSubdomainsInfoPreEvent.class, events.get(2));
+    assertInstanceOf(ListSubdomainsInfoEvent.class, events.get(3));
+    assertSame(filter, ((ListDomainMembersPreEvent) events.get(4)).filter());
+    ListDomainMembersEvent success = (ListDomainMembersEvent) events.get(5);
+    assertSame(filter, success.filter());
+    assertEquals(0, success.resultCount());
+    verify(delegate)
+        .listMembers(
+            eq("lake"),
+            eq(finance),
+            argThat(snapshots -> snapshots.length == 1 && child.equals(snapshots[0])),
+            eq(filter));
+  }
+
+  @Test
+  void mixedMemberScopesKeepOnlyVisibleSnapshotsAndRelations() {
+    allows.addAll(
+        Arrays.asList(
+            "Finance:USE_DOMAIN", "lake:USE_CATALOG", "lake:USE_SCHEMA", "lake:SELECT_TABLE"));
+    DomainEntity finance = domain("Finance", null, Domain.Status.PUBLISHED);
+    DomainDispatcher delegate = memberDispatcher(finance);
+    MetadataObject table = MetadataObjects.parse("cat.db.trades", MetadataObject.Type.TABLE);
+    DomainMember member =
+        new DomainMemberInfo(
+            table,
+            new DomainRelation[] {
+              DomainRelation.viaSubdomain("Trading"), DomainRelation.viaSubdomain("Secret")
+            });
+    DomainMemberFilter requested =
+        DomainMemberFilter.builder()
+            .withDomains("unknown", "Trading", "Secret")
+            .withTypes(MetadataObject.Type.TABLE)
+            .withNameContains("trades")
+            .build();
+    DomainMemberFilter effective =
+        DomainMemberFilter.builder()
+            .withDomains("Trading")
+            .withTypes(MetadataObject.Type.TABLE)
+            .withNameContains("trades")
+            .build();
+    when(delegate.listMembers(eq("lake"), eq(finance), any(DomainEntity[].class), eq(effective)))
+        .thenReturn(new DomainMember[] {member});
+    List<BaseEvent> events = new ArrayList<>();
+    DomainDispatcher dispatcher =
+        new DomainEventDispatcher(
+            new EventBus(Collections.singletonList(recordingListener(events))), delegate);
+    DomainMember[] result = DomainAuthzHelper.listMembers(dispatcher, "lake", "Finance", requested);
+    assertEquals(1, result.length);
+    assertEquals(table, result[0].object());
+    assertEquals(1, result[0].relations().length);
+    assertEquals(DomainRelation.viaSubdomain("Trading"), result[0].relations()[0]);
+    assertEquals(effective, ((ListDomainMembersPreEvent) events.get(4)).filter());
+    assertEquals(1, ((ListDomainMembersEvent) events.get(5)).resultCount());
+    verify(delegate)
+        .listMembers(
+            eq("lake"),
+            eq(finance),
+            argThat(snapshots -> snapshots.length == 1 && child.equals(snapshots[0])),
+            eq(effective));
+  }
+
+  @Test
+  void preListenerCanRejectAnEmptyAuthorizedMemberScope() {
+    allows.add("Finance:USE_DOMAIN");
+    DomainEntity finance = domain("Finance", null, Domain.Status.PUBLISHED);
+    DomainDispatcher delegate = memberDispatcher(finance);
+    List<BaseEvent> events = new ArrayList<>();
+    EventListenerPlugin listener = recordingListener(events);
+    ForbiddenException rejected = new ForbiddenException("member query denied");
+    doAnswer(
+            call -> {
+              BaseEvent event = call.getArgument(0);
+              events.add(event);
+              if (event instanceof ListDomainMembersPreEvent) {
+                throw rejected;
+              }
+              return null;
+            })
+        .when(listener)
+        .onPreEvent(any());
+    DomainDispatcher dispatcher =
+        new DomainEventDispatcher(new EventBus(Collections.singletonList(listener)), delegate);
+    assertSame(
+        rejected,
+        assertThrows(
+            ForbiddenException.class,
+            () ->
+                DomainAuthzHelper.listMembers(
+                    dispatcher,
+                    "lake",
+                    "Finance",
+                    DomainMemberFilter.builder().withDomains("unknown").build())));
+    assertEquals(5, events.size());
+    assertInstanceOf(ListDomainMembersPreEvent.class, events.get(4));
+    verify(delegate, never())
+        .listMembers(anyString(), any(DomainEntity.class), any(DomainEntity[].class), any());
+  }
+
+  private DomainDispatcher memberDispatcher(DomainEntity finance) {
+    DomainDispatcher delegate = mock(DomainDispatcher.class);
+    when(delegate.getDomain("lake", "Finance")).thenReturn(finance);
+    when(delegate.listSubdomainInfos("lake", "Finance"))
+        .thenReturn(new DomainEntity[] {child, domain("Secret", "Finance", Domain.Status.DRAFT)});
+    return delegate;
+  }
+
+  private EventListenerPlugin recordingListener(List<BaseEvent> events) {
+    EventListenerPlugin listener = mock(EventListenerPlugin.class);
+    doAnswer(
+            call -> {
+              events.add(call.getArgument(0));
+              return null;
+            })
+        .when(listener)
+        .onPreEvent(any());
+    doAnswer(
+            call -> {
+              events.add(call.getArgument(0));
+              return null;
+            })
+        .when(listener)
+        .onPostEvent(any());
+    return listener;
   }
 
   private boolean permitted(Privilege.Name privilege) {

@@ -332,15 +332,16 @@ public final class DomainAuthzHelper {
     if (!filter.domains().isEmpty()) {
       Set<String> selected = new HashSet<>(filter.domains());
       selected.retainAll(visibleNames);
-      if (selected.isEmpty()) {
-        return new DomainMember[0];
+      // Preserve an unmatched nonempty filter so the dispatcher still emits query events.
+      // Replacing it with an empty filter would incorrectly select the whole scope.
+      if (!selected.isEmpty()) {
+        effectiveFilter =
+            DomainMemberFilter.builder()
+                .withDomains(selected.toArray(new String[0]))
+                .withTypes(filter.types().toArray(new MetadataObject.Type[0]))
+                .withNameContains(filter.nameContains().orElse(null))
+                .build();
       }
-      effectiveFilter =
-          DomainMemberFilter.builder()
-              .withDomains(selected.toArray(new String[0]))
-              .withTypes(filter.types().toArray(new MetadataObject.Type[0]))
-              .withNameContains(filter.nameContains().orElse(null))
-              .build();
     }
     DomainMember[] members = dispatcher.listMembers(metalake, domain, subdomains, effectiveFilter);
     Set<MetadataObject> accessible =
